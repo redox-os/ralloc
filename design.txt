@@ -1,0 +1,129 @@
+
+
+Allocate.
+=========
+
+We start with our initial segment.
+
+   Address space
+  I---------------------------------I
+B
+l
+k
+s
+
+We then split it at the aligner, which is used for making sure that the pointer is aligned properly.
+
+   Address space
+  I------I
+B   ^    I--------------------------I
+l  al
+k
+s
+
+We then use the remaining block, but leave the excessive space.
+
+
+   Address space
+  I------I
+B                           I--------I
+l        \_________________/
+k        our allocated block.
+s
+
+The pointer to the marked area is then returned.
+
+Deallocate
+==========
+
+
+   Address space
+  I------I
+B                                  I--------I
+l        \_________________/
+k     the used block we want to deallocate.
+s
+
+We start by inserting the block, while keeping the list sorted. See `insertion` for details.
+
+
+   Address space
+  I------I
+B        I-----------------I
+l                                  I--------I
+k
+s
+
+Now the merging phase starts. We first observe that the first and the second block shares the end and the start respectively, in other words, we can merge these by adding the size together:
+
+   Address space
+  I------------------------I
+B                                  I--------I
+l
+k
+s
+
+Insertion
+=========
+
+We want to insert the block denoted by the tildes into our list. Perform a binary search to find where insertion is appropriate.
+
+   Address space
+  I------I
+B < here                      I--------I
+l                                              I------------I
+k
+s                                                             I---I
+             I~~~~~~~~~~I
+
+If the entry is not empty, we check if the block can be merged to the left (i.e., the previous block). If not, check if it is possible to the right. If both of these fails, we keep pushing the blocks to the right to the next entry until a empty entry is reached:
+
+   Address space
+  I------I
+B < here                      I--------I <~ this one cannot move down, due to being blocked.
+l
+k                                              I------------I <~ thus we have moved this one down.
+s                                                             I---I
+             I~~~~~~~~~~I
+
+Repeating yields:
+
+   Address space
+  I------I
+B < here
+l                             I--------I <~ this one cannot move down, due to being blocked.
+k                                              I------------I <~ thus we have moved this one down.
+s                                                             I---I
+             I~~~~~~~~~~I
+
+Now an empty space is left out, meaning that we can insert the block:
+
+   Address space
+  I------I
+B            I----------I
+l                             I--------I
+k                                              I------------I
+s                                                             I---I
+
+The insertion is now completed.
+
+Reallocation.
+=============
+
+We will first try to perform an in-place reallocation, and if that fails, we will use memmove.
+
+   Address space
+  I------I
+B \~~~~~~~~~~~~~~~~~~~~~/
+l     needed
+k
+s
+
+We simply find the block next to our initial block. If this block is free and have sufficient size, we will simply merge it into our initial block. If these conditions are not met, we have to deallocate our list, and then allocate a new one, after which we use memmove to copy the data over to the newly allocated list.
+
+Guarantees made.
+================
+
+1. The list is always sorted.
+2. No two free blocks overlap.
+3. No two free blocks are adjacent.
