@@ -27,7 +27,8 @@ impl BlockList {
     pub fn alloc(&mut self, size: usize, align: usize) -> Unique<u8> {
         let mut ins = None;
 
-        for (n, i) in self.iter_mut().enumerate() {
+        // We run right-to-left, since new blocks tend to get added to the right.
+        for (n, i) in self.iter_mut().enumerate().rev() {
             let aligner = aligner(*i.ptr, align);
 
             if i.size - aligner >= size {
