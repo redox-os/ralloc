@@ -1,4 +1,4 @@
-//! Ralloc: The memory efficient allocator.
+//! **Ralloc:** The memory efficient allocator.
 //!
 //! This crates define the user space allocator for Redox, which emphasizes performance and memory
 //! efficiency.
@@ -24,4 +24,4 @@ extern crate alloc;
 
 mod sys;
 mod block;
-mod block_list;
+mod bookkeeper;

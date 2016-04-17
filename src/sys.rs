@@ -1,6 +1,11 @@
+//! System primitives.
+
 use std::ptr::Unique;
 
 /// Out of memory.
+///
+/// In release mode, this will simply abort the process (standard behavior). In debug mode, it will
+/// panic, causing debugging to be easier.
 pub fn oom() -> ! {
     #[cfg(test)]
     panic!("Out of memory.");

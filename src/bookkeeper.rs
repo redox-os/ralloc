@@ -4,151 +4,6 @@
 //! `Unique` pointer and a size. `BlockEntry` contains an additional field, which marks if a block
 //! is free or not. The block list is simply a continuous list of block entries kept in the
 //! bookkeeper.
-//!
-//! The mechanism is outlined below:
-//!
-//! Allocate.
-//! =========
-//!
-//! We start with our initial segment.
-//!
-//! ```notrust
-//!    Address space
-//!   I---------------------------------I
-//! B
-//! l
-//! k
-//! s
-//! ```
-//!
-//! We then split it at the aligner, which is used for making sure that the pointer is aligned properly.
-//!
-//! ```notrust
-//!    Address space
-//!   I------I
-//! B   ^    I--------------------------I
-//! l  al
-//! k
-//! s
-//! ```
-//!
-//! We then use the remaining block, but leave the excessive space.
-//!
-//! ```notrust
-//!    Address space
-//!   I------I
-//! B                           I--------I
-//! l        \_________________/
-//! k        our allocated block.
-//! s
-//! ```
-//!
-//! The pointer to the marked area is then returned.
-//!
-//! Deallocate
-//! ==========
-//!
-//! ```notrust
-//!    Address space
-//!   I------I
-//! B                                  I--------I
-//! l        \_________________/
-//! k     the used block we want to deallocate.
-//! s
-//! ```
-//!
-//! We start by inserting the block, while keeping the list sorted. See `insertion` for details.
-//!
-//!
-//!        Address space
-//!       I------I
-//!     B        I-----------------I
-//!     l                                  I--------I
-//!     k
-//!     s
-//!
-//! Now the merging phase starts. We first observe that the first and the second block shares the
-//! end and the start respectively, in other words, we can merge these by adding the size together:
-//!
-//!        Address space
-//!       I------------------------I
-//!     B                                  I--------I
-//!     l
-//!     k
-//!     s
-//!
-//! Insertion
-//! =========
-//!
-//! We want to insert the block denoted by the tildes into our list. Perform a binary search to
-//! find where insertion is appropriate.
-//!
-//!        Address space
-//!       I------I
-//!     B < here                      I--------I
-//!     l                                              I------------I
-//!     k
-//!     s                                                             I---I
-//!                  I~~~~~~~~~~I
-//!
-//! If the entry is not empty, we check if the block can be merged to the left (i.e., the previous
-//! block). If not, check if it is possible to the right. If both of these fails, we keep pushing
-//! the blocks to the right to the next entry until a empty entry is reached:
-//!
-//!        Address space
-//!       I------I
-//!     B < here                      I--------I <~ this one cannot move down, due to being blocked.
-//!     l
-//!     k                                              I------------I <~ thus we have moved this one down.
-//!     s                                                             I---I
-//!                  I~~~~~~~~~~I
-//!
-//! Repeating yields:
-//!
-//!        Address space
-//!       I------I
-//!     B < here
-//!     l                             I--------I <~ this one cannot move down, due to being blocked.
-//!     k                                              I------------I <~ thus we have moved this one down.
-//!     s                                                             I---I
-//!                  I~~~~~~~~~~I
-//!
-//! Now an empty space is left out, meaning that we can insert the block:
-//!
-//!        Address space
-//!       I------I
-//!     B            I----------I
-//!     l                             I--------I
-//!     k                                              I------------I
-//!     s                                                             I---I
-//!
-//! The insertion is now completed.
-//!
-//! Reallocation.
-//! =============
-//!
-//! We will first try to perform an in-place reallocation, and if that fails, we will use memmove.
-//!
-//! ```notrust
-//!    Address space
-//!   I------I
-//! B \~~~~~~~~~~~~~~~~~~~~~/
-//! l     needed
-//! k
-//! s
-//! ```
-//!
-//! We simply find the block next to our initial block. If this block is free and have sufficient
-//! size, we will simply merge it into our initial block. If these conditions are not met, we have
-//! to deallocate our list, and then allocate a new one, after which we use memmove to copy the
-//! data over to the newly allocated list.
-//!
-//! Guarantees made.
-//! ================
-//!
-//! 1. The list is always sorted.
-//! 2. No two free blocks overlap.
-//! 3. No two free blocks are adjacent.
 
 use block::{BlockEntry, Block};
 use sys;
@@ -167,6 +22,214 @@ use extra::option::OptionalExt;
 /// kept. Entries in the block list can be "empty", meaning that you can overwrite the entry
 /// without breaking consistency.
 pub struct Bookkeeper {
+    block_list: BlockList,
+}
+
+impl Bookkeeper {
+    /// Allocate a chunk of memory.
+    ///
+    /// This function takes a size and an alignment. From these a fitting block is found, to which
+    /// a pointer is returned. The pointer returned has the following guarantees:
+    ///
+    /// 1. It is aligned to `align`: In particular, `align` divides the address.
+    /// 2. The chunk can be safely read and written, up to `size`. Reading or writing out of this
+    ///    bound is undefined behavior.
+    /// 3. It is a valid, unique, non-null pointer, until `free` is called again.
+    pub fn alloc(&mut self, size: usize, align: usize) -> Unique<u8> {
+        self.block_list.alloc(size, align)
+    }
+
+    /// Reallocate memory.
+    ///
+    /// If necessary it will allocate a new buffer and deallocate the old one.
+    ///
+    /// The following guarantees are made:
+    ///
+    /// 1. The returned pointer is valid and aligned to `align`.
+    /// 2. The returned pointer points to a buffer containing the same data byte-for-byte as the
+    ///    original buffer.
+    /// 3. Reading and writing up to the bound, `new_size`, is valid.
+    pub fn realloc(&mut self, block: Block, new_size: usize, align: usize) -> Unique<u8> {
+        self.block_list.realloc(block, new_size, align)
+    }
+
+    /// Free a memory block.
+    ///
+    /// After this have been called, no guarantees are made about the passed pointer. If it want
+    /// to, it could begin shooting laser beams.
+    fn free(&mut self, block: Block) {
+        self.block_list.free(block)
+    }
+}
+
+/// A block list.
+///
+/// This primitive is used for keeping track of the free blocks.
+///
+/// Guarantees made.
+/// ================
+///
+/// Certain guarantees are made:
+///
+/// 1. The list is always sorted with respect to the block's pointers.
+/// 2. No two free blocks overlap.
+/// 3. No two free blocks are adjacent.
+///
+/// Merging
+/// =======
+///
+/// Merging is the way the block lists keep these guarentees. Merging works by adding two adjacent
+/// free blocks to one, and then marking the secondary block as occupied.
+///
+/// The mechanism is outlined below:
+///
+/// Allocate.
+/// =========
+///
+/// We start with our initial segment.
+///
+/// ```notrust
+///    Address space
+///   I---------------------------------I
+/// B
+/// l
+/// k
+/// s
+/// ```
+///
+/// We then split it at the aligner, which is used for making sure that the pointer is aligned properly.
+///
+/// ```notrust
+///    Address space
+///   I------I
+/// B   ^    I--------------------------I
+/// l  al
+/// k
+/// s
+/// ```
+///
+/// We then use the remaining block, but leave the excessive space.
+///
+/// ```notrust
+///    Address space
+///   I------I
+/// B                           I--------I
+/// l        \_________________/
+/// k        our allocated block.
+/// s
+/// ```
+///
+/// The pointer to the marked area is then returned.
+///
+/// Deallocate
+/// ==========
+///
+/// ```notrust
+///    Address space
+///   I------I
+/// B                                  I--------I
+/// l        \_________________/
+/// k     the used block we want to deallocate.
+/// s
+/// ```
+///
+/// We start by inserting the block, while keeping the list sorted. See `insertion` for details.
+///
+/// ```notrust
+///    Address space
+///   I------I
+/// B        I-----------------I
+/// l                                  I--------I
+/// k
+/// s
+/// ```
+///
+/// Now the merging phase starts. We first observe that the first and the second block shares the
+/// end and the start respectively, in other words, we can merge these by adding the size together:
+///
+/// ```notrust
+///    Address space
+///   I------------------------I
+/// B                                  I--------I
+/// l
+/// k
+/// s
+/// ```
+///
+/// Insertion
+/// =========
+///
+/// We want to insert the block denoted by the tildes into our list. Perform a binary search to
+/// find where insertion is appropriate.
+///
+/// ```notrust
+///    Address space
+///   I------I
+/// B < here                      I--------I
+/// l                                              I------------I
+/// k
+/// s                                                             I---I
+///                  I~~~~~~~~~~I
+/// ```
+///
+/// If the entry is not empty, we check if the block can be merged to the left (i.e., the previous
+/// block). If not, check if it is possible to the right. If both of these fails, we keep pushing
+/// the blocks to the right to the next entry until a empty entry is reached:
+///
+/// ```notrust
+///    Address space
+///   I------I
+/// B < here                      I--------I <~ this one cannot move down, due to being blocked.
+/// l
+/// k                                              I------------I <~ thus we have moved this one down.
+/// s                                                             I---I
+///              I~~~~~~~~~~I
+/// ```
+///
+/// Repeating yields:
+///
+/// ```notrust
+///    Address space
+///   I------I
+/// B < here
+/// l                             I--------I <~ this one cannot move down, due to being blocked.
+/// k                                              I------------I <~ thus we have moved this one down.
+/// s                                                             I---I
+///              I~~~~~~~~~~I
+/// ```
+///
+/// Now an empty space is left out, meaning that we can insert the block:
+///
+/// ```notrust
+///    Address space
+///   I------I
+/// B            I----------I
+/// l                             I--------I
+/// k                                              I------------I
+/// s                                                             I---I
+/// ```
+///
+/// The insertion is now completed.
+///
+/// Reallocation.
+/// =============
+///
+/// We will first try to perform an in-place reallocation, and if that fails, we will use memmove.
+///
+/// ```notrust
+///    Address space
+///   I------I
+/// B \~~~~~~~~~~~~~~~~~~~~~/
+/// l     needed
+/// k
+/// s
+/// ```
+///
+/// We simply find the block next to our initial block. If this block is free and have sufficient
+/// size, we will simply merge it into our initial block. If these conditions are not met, we have
+/// to deallocate our list, and then allocate a new one, after which we use memmove to copy the
+/// data over to the newly allocated list.
+struct BlockList {
     /// The capacity of the block list.
     cap: usize,
     /// The length of the block list.
@@ -198,17 +261,9 @@ fn canonicalize_brk(size: usize) -> usize {
     cmp::max(BRK_MIN, size + cmp::min(BRK_MULTIPLIER * size, BRK_MIN_EXTRA))
 }
 
-impl Bookkeeper {
-    /// Allocate a chunk of memory.
-    ///
-    /// This function takes a size and an alignment. From these a fitting block is found, to which
-    /// a pointer is returned. The pointer returned has the following guarantees:
-    ///
-    /// 1. It is aligned to `align`: In particular, `align` divides the address.
-    /// 2. The chunk can be safely read and written, up to `size`. Reading or writing out of this
-    ///    bound is undefined behavior.
-    /// 3. It is a valid, unique, non-null pointer, until `free` is called again.
-    pub fn alloc(&mut self, size: usize, align: usize) -> Unique<u8> {
+impl BlockList {
+    /// *[See `Bookkeeper`'s respective method.](./struct.Bookkeeper.html#method.alloc)*
+    fn alloc(&mut self, size: usize, align: usize) -> Unique<u8> {
         let mut ins = None;
 
         // We run right-to-left, since new blocks tend to get added to the right.
@@ -350,17 +405,8 @@ impl Bookkeeper {
         }
     }
 
-    /// Reallocate memory.
-    ///
-    /// If necessary it will allocate a new buffer and deallocate the old one.
-    ///
-    /// The following guarantees are made:
-    ///
-    /// 1. The returned pointer is valid and aligned to `align`.
-    /// 2. The returned pointer points to a buffer containing the same data byte-for-byte as the
-    ///    original buffer.
-    /// 3. Reading and writing up to the bound, `new_size`, is valid.
-    pub fn realloc(&mut self, block: Block, new_size: usize, align: usize) -> Unique<u8> {
+    /// *[See `Bookkeeper`'s respective method.](./struct.Bookkeeper.html#method.realloc)*
+    fn realloc(&mut self, block: Block, new_size: usize, align: usize) -> Unique<u8> {
         let ind = self.find(&block);
 
         if self.realloc_inplace(ind, block.size, new_size).is_ok() {
@@ -416,11 +462,8 @@ impl Bookkeeper {
         }
     }
 
-    /// Free a memory block.
-    ///
-    /// After this have been called, no guarantees are made about the passed pointer. If it want
-    /// to, it could begin shooting laser beams.
-    pub fn free(&mut self, block: Block) {
+    /// *[See `Bookkeeper`'s respective method.](./struct.Bookkeeper.html#method.free)*
+    fn free(&mut self, block: Block) {
         let ind = self.find(&block);
 
         // Try to merge left.
@@ -501,7 +544,7 @@ impl Bookkeeper {
     }
 }
 
-impl ops::Deref for Bookkeeper {
+impl ops::Deref for BlockList {
     type Target = [BlockEntry];
 
     fn deref(&self) -> &[BlockEntry] {
@@ -510,7 +553,7 @@ impl ops::Deref for Bookkeeper {
         }
     }
 }
-impl ops::DerefMut for Bookkeeper {
+impl ops::DerefMut for BlockList {
     fn deref_mut(&mut self) -> &mut [BlockEntry] {
         unsafe {
             slice::from_raw_parts_mut(*self.ptr, self.len)
