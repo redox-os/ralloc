@@ -1,9 +1,11 @@
 use block::{BlockEntry, Block};
 use sys;
 
-use std::mem::{align_of, size_of};
+use std::mem::align_of;
 use std::{ops, ptr, slice, cmp};
 use std::ptr::Unique;
+
+use extra::option::OptionalExt;
 
 pub struct BlockList {
     cap: usize,
@@ -56,6 +58,9 @@ impl BlockList {
                 self.insert(n, b.into());
             }
 
+            // Check consistency.
+            self.check();
+
             res
         } else {
             // No fitting block found. Allocate a new block.
@@ -68,8 +73,11 @@ impl BlockList {
         self.reserve(len + 1);
 
         unsafe {
-            ptr::write((*self.ptr as usize + self.len * size_of::<Block>()) as *mut _, block);
+            ptr::write((&mut *self.last_mut().unchecked_unwrap() as *mut _).offset(1), block);
         }
+
+        // Check consistency.
+        self.check();
     }
 
     fn search(&mut self, block: &Block) -> Result<usize, usize> {
@@ -81,30 +89,34 @@ impl BlockList {
         let can_size = canonicalize_brk(size);
         // Get the previous segment end.
         let seg_end = sys::segment_end().unwrap_or_else(|x| x.handle());
+        // Calculate the aligner.
+        let aligner = aligner(seg_end, align);
         // Use SYSBRK to allocate extra data segment.
-        let ptr = sys::inc_brk(can_size + aligner(seg_end, align)).unwrap_or_else(|x| x.handle());
+        let ptr = sys::inc_brk(can_size + aligner).unwrap_or_else(|x| x.handle());
 
-        let res = unsafe {
-            Unique::new((*ptr as usize + align) as *mut _)
+        let alignment_block = Block {
+            size: aligner,
+            ptr: ptr,
         };
-        let extra = unsafe {
-            Unique::new((*res as usize + size) as *mut _)
+        let res = Block {
+            ptr: alignment_block.end(),
+            size: size,
         };
 
         // Add it to the list. This will not change the order, since the pointer is higher than all
         // the previous blocks.
-        self.push(Block {
-            size: align,
-            ptr: ptr,
-        }.into());
+        self.push(alignment_block.into());
 
         // Add the extra space allocated.
         self.push(Block {
             size: can_size - size,
-            ptr: extra,
+            ptr: res.end(),
         }.into());
 
-        res
+        // Check consistency.
+        self.check();
+
+        res.ptr
     }
 
     fn realloc_inplace(&mut self, ind: usize, old_size: usize, size: usize) -> Result<(), ()> {
@@ -123,6 +135,9 @@ impl BlockList {
             if self[ind + 1].size == 0 {
                 self[ind + 1].free = false;
             }
+
+            // Check consistency.
+            self.check();
 
             Ok(())
         } else {
@@ -147,6 +162,9 @@ impl BlockList {
             // Free the old block.
             self.free(block);
 
+            // Check consistency.
+            self.check();
+
             ptr
         }
     }
@@ -160,10 +178,13 @@ impl BlockList {
                     size: self.cap,
                 };
 
-                Unique::new(*self.realloc(block, needed * 2, align_of::<Block>()) as *mut _)
+                Unique::new(*self.realloc(block, needed * 2, align_of::<BlockEntry>()) as *mut _)
             };
             // Update the capacity.
             self.cap = needed * 2;
+
+            // Check consistency.
+            self.check();
         }
     }
 
@@ -186,6 +207,9 @@ impl BlockList {
         } else {
             self.insert(ind, block.into());
         }
+
+        // Check consistency.
+        self.check();
     }
 
     fn insert(&mut self, ind: usize, block: BlockEntry) {
@@ -211,6 +235,31 @@ impl BlockList {
         // Place the block left to the moved line.
         self[ind] = block;
         self.len += 1;
+
+        // Check consistency.
+        self.check();
+    }
+
+    #[cfg(not(debug_assertions))]
+    fn check(&self) {}
+
+    #[cfg(debug_assertions)]
+    fn check(&self) {
+        // Check if sorted.
+        let mut prev = *self[0].ptr;
+        for (n, i) in self.iter().enumerate().skip(1) {
+            assert!(*i.ptr > prev, "The block list is not sorted at index, {}.", n);
+            prev = *i.ptr;
+        }
+        // Check if overlapping.
+        let mut prev = *self[0].ptr;
+        for (n, i) in self.iter().enumerate().skip(1) {
+            assert!(!i.free || *i.ptr > prev, "Two blocks are overlapping/adjacent at index, {}.", n);
+            prev = *i.end();
+        }
+
+        // Check that the length is lower than or equals to the capacity.
+        assert!(self.len <= self.cap, "The capacity does not cover the length.")
     }
 }
 

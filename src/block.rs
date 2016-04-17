@@ -7,8 +7,10 @@ pub struct Block {
 }
 
 impl Block {
-    pub unsafe fn end(&self) -> Unique<u8> {
-        Unique::new((self.size + *self.ptr as usize) as *mut _)
+    pub fn end(&self) -> Unique<u8> {
+        unsafe {
+            Unique::new((self.size + *self.ptr as usize) as *mut _)
+        }
     }
 
     pub fn left_to(&self, to: &Block) -> bool {
