@@ -1,3 +1,145 @@
+//! The memory bookkeeping module.
+//!
+//! Blocks are the main unit for the memory bookkeeping. A block is a simple construct with a
+//! `Unique` pointer and a size. `BlockEntry` contains an additional field, which marks if a block
+//! is free or not. The block list is simply a continuous list of block entries kept in the
+//! bookkeeper.
+//!
+//! The mechanism is outlined below:
+//!
+//! Allocate.
+//! =========
+//!
+//! We start with our initial segment.
+//!
+//!        Address space
+//!       I---------------------------------I
+//!     B
+//!     l
+//!     k
+//!     s
+//!
+//! We then split it at the aligner, which is used for making sure that the pointer is aligned properly.
+//!
+//!        Address space
+//!       I------I
+//!     B   ^    I--------------------------I
+//!     l  al
+//!     k
+//!     s
+//!
+//! We then use the remaining block, but leave the excessive space.
+//!
+//!        Address space
+//!       I------I
+//!     B                           I--------I
+//!     l        \_________________/
+//!     k        our allocated block.
+//!     s
+//!
+//! The pointer to the marked area is then returned.
+//!
+//! Deallocate
+//! ==========
+//!
+//!        Address space
+//!       I------I
+//!     B                                  I--------I
+//!     l        \_________________/
+//!     k     the used block we want to deallocate.
+//!     s
+//!
+//! We start by inserting the block, while keeping the list sorted. See `insertion` for details.
+//!
+//!
+//!        Address space
+//!       I------I
+//!     B        I-----------------I
+//!     l                                  I--------I
+//!     k
+//!     s
+//!
+//! Now the merging phase starts. We first observe that the first and the second block shares the
+//! end and the start respectively, in other words, we can merge these by adding the size together:
+//!
+//!        Address space
+//!       I------------------------I
+//!     B                                  I--------I
+//!     l
+//!     k
+//!     s
+//!
+//! Insertion
+//! =========
+//!
+//! We want to insert the block denoted by the tildes into our list. Perform a binary search to
+//! find where insertion is appropriate.
+//!
+//!        Address space
+//!       I------I
+//!     B < here                      I--------I
+//!     l                                              I------------I
+//!     k
+//!     s                                                             I---I
+//!                  I~~~~~~~~~~I
+//!
+//! If the entry is not empty, we check if the block can be merged to the left (i.e., the previous
+//! block). If not, check if it is possible to the right. If both of these fails, we keep pushing
+//! the blocks to the right to the next entry until a empty entry is reached:
+//!
+//!        Address space
+//!       I------I
+//!     B < here                      I--------I <~ this one cannot move down, due to being blocked.
+//!     l
+//!     k                                              I------------I <~ thus we have moved this one down.
+//!     s                                                             I---I
+//!                  I~~~~~~~~~~I
+//!
+//! Repeating yields:
+//!
+//!        Address space
+//!       I------I
+//!     B < here
+//!     l                             I--------I <~ this one cannot move down, due to being blocked.
+//!     k                                              I------------I <~ thus we have moved this one down.
+//!     s                                                             I---I
+//!                  I~~~~~~~~~~I
+//!
+//! Now an empty space is left out, meaning that we can insert the block:
+//!
+//!        Address space
+//!       I------I
+//!     B            I----------I
+//!     l                             I--------I
+//!     k                                              I------------I
+//!     s                                                             I---I
+//!
+//! The insertion is now completed.
+//!
+//! Reallocation.
+//! =============
+//!
+//! We will first try to perform an in-place reallocation, and if that fails, we will use memmove.
+//!
+//!        Address space
+//!       I------I
+//!     B \~~~~~~~~~~~~~~~~~~~~~/
+//!     l     needed
+//!     k
+//!     s
+//!
+//! We simply find the block next to our initial block. If this block is free and have sufficient
+//! size, we will simply merge it into our initial block. If these conditions are not met, we have
+//! to deallocate our list, and then allocate a new one, after which we use memmove to copy the
+//! data over to the newly allocated list.
+//!
+//! Guarantees made.
+//! ================
+//!
+//! 1. The list is always sorted.
+//! 2. No two free blocks overlap.
+//! 3. No two free blocks are adjacent.
+
 use block::{BlockEntry, Block};
 use sys;
 
@@ -7,16 +149,37 @@ use std::ptr::Unique;
 
 use extra::option::OptionalExt;
 
-pub struct BlockList {
+/// The memory bookkeeper.
+///
+/// This is the main primitive in ralloc. Its job is to keep track of the free blocks in a
+/// structured manner, such that allocation, reallocation, and deallocation are all efficient.
+/// Parituclarly, it keeps a list of free blocks, commonly called the "block list". This list is
+/// kept. Entries in the block list can be "empty", meaning that you can overwrite the entry
+/// without breaking consistency.
+pub struct Bookkeeper {
+    /// The capacity of the block list.
     cap: usize,
+    /// The length of the block list.
     len: usize,
+    /// The pointer to the first element in the block list.
     ptr: Unique<BlockEntry>,
 }
 
+/// Calculate the aligner.
+///
+/// The aligner is what we add to a pointer to align it to a given value.
 fn aligner(ptr: *mut u8, align: usize) -> usize {
     align - ptr as usize % align
 }
 
+/// Canonicalize a BRK request.
+///
+/// Syscalls can be expensive, which is why we would rather accquire more memory than necessary,
+/// than having many syscalls acquiring memory stubs. Memory stubs are small blocks of memory,
+/// which are essentially useless until merge with another block.
+///
+/// To avoid many syscalls and accumulating memory stubs, we BRK a little more memory than
+/// necessary. This function calculate the memory to be BRK'd based on the necessary memory.
 fn canonicalize_brk(size: usize) -> usize {
     const BRK_MULTIPLIER: usize = 1;
     const BRK_MIN: usize = 200;
@@ -25,7 +188,16 @@ fn canonicalize_brk(size: usize) -> usize {
     cmp::max(BRK_MIN, size + cmp::min(BRK_MULTIPLIER * size, BRK_MIN_EXTRA))
 }
 
-impl BlockList {
+impl Bookkeeper {
+    /// Allocate a chunk of memory.
+    ///
+    /// This function takes a size and an alignment. From these a fitting block is found, to which
+    /// a pointer is returned. The pointer returned has the following guarantees:
+    ///
+    /// 1. It is aligned to `align`: In particular, `align` divides the address.
+    /// 2. The chunk can be safely read and written, up to `size`. Reading or writing out of this
+    ///    bound is undefined behavior.
+    /// 3. It is a valid, unique, non-null pointer, until `free` is called again.
     pub fn alloc(&mut self, size: usize, align: usize) -> Unique<u8> {
         let mut ins = None;
 
@@ -64,10 +236,14 @@ impl BlockList {
             res
         } else {
             // No fitting block found. Allocate a new block.
-            self.alloc_new(size, align)
+            self.alloc_fresh(size, align)
         }
     }
 
+    /// Push to the block list.
+    ///
+    /// This will append a block entry to the end of the block list. Make sure that this entry has
+    /// a value higher than any of the elements in the list, to keep it sorted.
     fn push(&mut self, block: BlockEntry) {
         let len = self.len;
         self.reserve(len + 1);
@@ -80,11 +256,17 @@ impl BlockList {
         self.check();
     }
 
+    /// Find a block's index through binary search.
+    ///
+    /// If it fails, the value will be where the block could be inserted to keep the list sorted.
     fn search(&mut self, block: &Block) -> Result<usize, usize> {
         self.binary_search_by(|x| (**x).cmp(block))
     }
 
-    fn alloc_new(&mut self, size: usize, align: usize) -> Unique<u8> {
+    /// Allocate _fresh_ space.
+    ///
+    /// "Fresh" means that the space is allocated through a BRK call to the kernel.
+    fn alloc_fresh(&mut self, size: usize, align: usize) -> Unique<u8> {
         // Calculate the canonical size (extra space is allocated to limit the number of system calls).
         let can_size = canonicalize_brk(size);
         // Get the previous segment end.
@@ -119,6 +301,19 @@ impl BlockList {
         res.ptr
     }
 
+    /// Reallocate inplace.
+    ///
+    /// This will try to reallocate a buffer inplace, meaning that the buffers length is merely
+    /// extended, and not copied to a new buffer.
+    ///
+    /// Returns `Err(())` if the buffer extension couldn't be done, `Err(())` otherwise.
+    ///
+    /// The following guarantees are made:
+    ///
+    /// 1. If this function returns `Ok(())`, it is valid to read and write within the bound of the
+    ///    new size.
+    /// 2. No changes are made to the allocated buffer itself.
+    /// 3. On failure, the state of the allocator is left unmodified.
     fn realloc_inplace(&mut self, ind: usize, old_size: usize, size: usize) -> Result<(), ()> {
         if ind == self.len - 1 { return Err(()) }
 
@@ -145,6 +340,16 @@ impl BlockList {
         }
     }
 
+    /// Reallocate memory.
+    ///
+    /// If necessary it will allocate a new buffer and deallocate the old one.
+    ///
+    /// The following guarantees are made:
+    ///
+    /// 1. The returned pointer is valid and aligned to `align`.
+    /// 2. The returned pointer points to a buffer containing the same data byte-for-byte as the
+    ///    original buffer.
+    /// 3. Reading and writing up to the bound, `new_size`, is valid.
     pub fn realloc(&mut self, block: Block, new_size: usize, align: usize) -> Unique<u8> {
         let ind = self.find(&block);
 
@@ -169,6 +374,10 @@ impl BlockList {
         }
     }
 
+    /// Reserve space for the block list.
+    ///
+    /// This will extend the capacity to a number greater than or equals to `needed`, potentially
+    /// reallocating the block list.
     fn reserve(&mut self, needed: usize) {
         if needed > self.cap {
             // Reallocate the block list.
@@ -188,6 +397,8 @@ impl BlockList {
         }
     }
 
+    /// Perform a binary search to find the appropriate place where the block can be insert or is
+    /// located.
     fn find(&mut self, block: &Block) -> usize {
         match self.search(block) {
             Ok(x) => x,
@@ -195,6 +406,10 @@ impl BlockList {
         }
     }
 
+    /// Free a memory block.
+    ///
+    /// After this have been called, no guarantees are made about the passed pointer. If it want
+    /// to, it could begin shooting laser beams.
     pub fn free(&mut self, block: Block) {
         let ind = self.find(&block);
 
@@ -212,6 +427,11 @@ impl BlockList {
         self.check();
     }
 
+    /// Insert a block entry at some index.
+    ///
+    /// If the space is non-empty, the elements will be pushed filling out the empty gaps to the
+    /// right. If all places to the right is occupied, it will reserve additional space to the
+    /// block list.
     fn insert(&mut self, ind: usize, block: BlockEntry) {
         let len = self.len;
 
@@ -240,9 +460,17 @@ impl BlockList {
         self.check();
     }
 
+    /// No-op in release mode.
     #[cfg(not(debug_assertions))]
     fn check(&self) {}
 
+    /// Perform consistency checks.
+    ///
+    /// This will check for the following conditions:
+    ///
+    /// 1. The list is sorted.
+    /// 2. No entries are not overlapping.
+    /// 3. The length does not exceed the capacity.
     #[cfg(debug_assertions)]
     fn check(&self) {
         // Check if sorted.
@@ -263,7 +491,7 @@ impl BlockList {
     }
 }
 
-impl ops::Deref for BlockList {
+impl ops::Deref for Bookkeeper {
     type Target = [BlockEntry];
 
     fn deref(&self) -> &[BlockEntry] {
@@ -272,7 +500,7 @@ impl ops::Deref for BlockList {
         }
     }
 }
-impl ops::DerefMut for BlockList {
+impl ops::DerefMut for Bookkeeper {
     fn deref_mut(&mut self) -> &mut [BlockEntry] {
         unsafe {
             slice::from_raw_parts_mut(*self.ptr, self.len)
