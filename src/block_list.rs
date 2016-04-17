@@ -12,42 +12,50 @@
 //!
 //! We start with our initial segment.
 //!
-//!        Address space
-//!       I---------------------------------I
-//!     B
-//!     l
-//!     k
-//!     s
+//! ```notrust
+//!    Address space
+//!   I---------------------------------I
+//! B
+//! l
+//! k
+//! s
+//! ```
 //!
 //! We then split it at the aligner, which is used for making sure that the pointer is aligned properly.
 //!
-//!        Address space
-//!       I------I
-//!     B   ^    I--------------------------I
-//!     l  al
-//!     k
-//!     s
+//! ```notrust
+//!    Address space
+//!   I------I
+//! B   ^    I--------------------------I
+//! l  al
+//! k
+//! s
+//! ```
 //!
 //! We then use the remaining block, but leave the excessive space.
 //!
-//!        Address space
-//!       I------I
-//!     B                           I--------I
-//!     l        \_________________/
-//!     k        our allocated block.
-//!     s
+//! ```notrust
+//!    Address space
+//!   I------I
+//! B                           I--------I
+//! l        \_________________/
+//! k        our allocated block.
+//! s
+//! ```
 //!
 //! The pointer to the marked area is then returned.
 //!
 //! Deallocate
 //! ==========
 //!
-//!        Address space
-//!       I------I
-//!     B                                  I--------I
-//!     l        \_________________/
-//!     k     the used block we want to deallocate.
-//!     s
+//! ```notrust
+//!    Address space
+//!   I------I
+//! B                                  I--------I
+//! l        \_________________/
+//! k     the used block we want to deallocate.
+//! s
+//! ```
 //!
 //! We start by inserting the block, while keeping the list sorted. See `insertion` for details.
 //!
@@ -121,12 +129,14 @@
 //!
 //! We will first try to perform an in-place reallocation, and if that fails, we will use memmove.
 //!
-//!        Address space
-//!       I------I
-//!     B \~~~~~~~~~~~~~~~~~~~~~/
-//!     l     needed
-//!     k
-//!     s
+//! ```notrust
+//!    Address space
+//!   I------I
+//! B \~~~~~~~~~~~~~~~~~~~~~/
+//! l     needed
+//! k
+//! s
+//! ```
 //!
 //! We simply find the block next to our initial block. If this block is free and have sufficient
 //! size, we will simply merge it into our initial block. If these conditions are not met, we have
