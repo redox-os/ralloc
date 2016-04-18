@@ -23,7 +23,11 @@ use extra::option::OptionalExt;
 /// Parituclarly, it keeps a list of free blocks, commonly called the "block list". This list is
 /// kept. Entries in the block list can be "empty", meaning that you can overwrite the entry
 /// without breaking consistency.
+///
+/// For details about the internals, see [`BlockList`](./struct.BlockList.html) (requires the docs
+/// to be rendered with private item exposed).
 pub struct Bookkeeper {
+    /// The internal block list.
     block_list: BlockList,
 }
 
@@ -114,155 +118,6 @@ fn canonicalize_brk(size: usize) -> usize {
 ///
 /// Merging is the way the block lists keep these guarentees. Merging works by adding two adjacent
 /// free blocks to one, and then marking the secondary block as occupied.
-///
-/// The mechanism is outlined below:
-///
-/// Allocate.
-/// =========
-///
-/// We start with our initial segment.
-///
-/// ```notrust
-///    Address space
-///   I---------------------------------I
-/// B
-/// l
-/// k
-/// s
-/// ```
-///
-/// We then split it at the aligner, which is used for making sure that the pointer is aligned properly.
-///
-/// ```notrust
-///    Address space
-///   I------I
-/// B   ^    I--------------------------I
-/// l  al
-/// k
-/// s
-/// ```
-///
-/// We then use the remaining block, but leave the excessive space.
-///
-/// ```notrust
-///    Address space
-///   I------I
-/// B                           I--------I
-/// l        \_________________/
-/// k        our allocated block.
-/// s
-/// ```
-///
-/// The pointer to the marked area is then returned.
-///
-/// Deallocate
-/// ==========
-///
-/// ```notrust
-///    Address space
-///   I------I
-/// B                                  I--------I
-/// l        \_________________/
-/// k     the used block we want to deallocate.
-/// s
-/// ```
-///
-/// We start by inserting the block, while keeping the list sorted. See `insertion` for details.
-///
-/// ```notrust
-///    Address space
-///   I------I
-/// B        I-----------------I
-/// l                                  I--------I
-/// k
-/// s
-/// ```
-///
-/// Now the merging phase starts. We first observe that the first and the second block shares the
-/// end and the start respectively, in other words, we can merge these by adding the size together:
-///
-/// ```notrust
-///    Address space
-///   I------------------------I
-/// B                                  I--------I
-/// l
-/// k
-/// s
-/// ```
-///
-/// Insertion
-/// =========
-///
-/// We want to insert the block denoted by the tildes into our list. Perform a binary search to
-/// find where insertion is appropriate.
-///
-/// ```notrust
-///    Address space
-///   I------I
-/// B < here                      I--------I
-/// l                                              I------------I
-/// k
-/// s                                                             I---I
-///                  I~~~~~~~~~~I
-/// ```
-///
-/// If the entry is not empty, we check if the block can be merged to the left (i.e., the previous
-/// block). If not, check if it is possible to the right. If both of these fails, we keep pushing
-/// the blocks to the right to the next entry until a empty entry is reached:
-///
-/// ```notrust
-///    Address space
-///   I------I
-/// B < here                      I--------I <~ this one cannot move down, due to being blocked.
-/// l
-/// k                                              I------------I <~ thus we have moved this one down.
-/// s                                                             I---I
-///              I~~~~~~~~~~I
-/// ```
-///
-/// Repeating yields:
-///
-/// ```notrust
-///    Address space
-///   I------I
-/// B < here
-/// l                             I--------I <~ this one cannot move down, due to being blocked.
-/// k                                              I------------I <~ thus we have moved this one down.
-/// s                                                             I---I
-///              I~~~~~~~~~~I
-/// ```
-///
-/// Now an empty space is left out, meaning that we can insert the block:
-///
-/// ```notrust
-///    Address space
-///   I------I
-/// B            I----------I
-/// l                             I--------I
-/// k                                              I------------I
-/// s                                                             I---I
-/// ```
-///
-/// The insertion is now completed.
-///
-/// Reallocation.
-/// =============
-///
-/// We will first try to perform an in-place reallocation, and if that fails, we will use memmove.
-///
-/// ```notrust
-///    Address space
-///   I------I
-/// B \~~~~~~~~~~~~~~~~~~~~~/
-/// l     needed
-/// k
-/// s
-/// ```
-///
-/// We simply find the block next to our initial block. If this block is free and have sufficient
-/// size, we will simply merge it into our initial block. If these conditions are not met, we have
-/// to deallocate our list, and then allocate a new one, after which we use memmove to copy the
-/// data over to the newly allocated list.
 struct BlockList {
     /// The capacity of the block list.
     cap: usize,
@@ -285,6 +140,44 @@ impl BlockList {
     }
 
     /// *[See `Bookkeeper`'s respective method.](./struct.Bookkeeper.html#method.alloc)*
+    ///
+    /// # Example
+    ///
+    /// We start with our initial segment.
+    ///
+    /// ```notrust
+    ///    Address space
+    ///   I---------------------------------I
+    /// B
+    /// l
+    /// k
+    /// s
+    /// ```
+    ///
+    /// We then split it at the [aligner](./fn.aligner.html), which is used for making sure that
+    /// the pointer is aligned properly.
+    ///
+    /// ```notrust
+    ///    Address space
+    ///   I------I
+    /// B   ^    I--------------------------I
+    /// l  al
+    /// k
+    /// s
+    /// ```
+    ///
+    /// We then use the remaining block, but leave the excessive space.
+    ///
+    /// ```notrust
+    ///    Address space
+    ///   I------I
+    /// B                           I--------I
+    /// l        \_________________/
+    /// k        our allocated block.
+    /// s
+    /// ```
+    ///
+    /// The pointer to the marked area is then returned.
     fn alloc(&mut self, size: usize, align: usize) -> Unique<u8> {
         let mut ins = None;
 
@@ -428,6 +321,27 @@ impl BlockList {
     }
 
     /// *[See `Bookkeeper`'s respective method.](./struct.Bookkeeper.html#method.realloc)*
+    ///
+    /// Example
+    /// =======
+    ///
+    /// We will first try to perform an in-place reallocation, and if that fails, we will use
+    /// memmove.
+    ///
+    /// ```notrust
+    ///    Address space
+    ///   I------I
+    /// B \~~~~~~~~~~~~~~~~~~~~~/
+    /// l     needed
+    /// k
+    /// s
+    /// ```
+    ///
+    /// We simply find the block next to our initial block. If this block is free and have
+    /// sufficient size, we will simply merge it into our initial block, and leave the excessive
+    /// space as free. If these conditions are not met, we have to allocate a new list, and then
+    /// deallocate the old one, after which we use memmove to copy the data over to the newly
+    /// allocated list.
     fn realloc(&mut self, block: Block, new_size: usize, align: usize) -> Unique<u8> {
         let ind = self.find(&block);
 
@@ -485,6 +399,42 @@ impl BlockList {
     }
 
     /// *[See `Bookkeeper`'s respective method.](./struct.Bookkeeper.html#method.free)*
+    ///
+    /// # Example
+    ///
+    /// ```notrust
+    ///    Address space
+    ///   I------I
+    /// B                                  I--------I
+    /// l        \_________________/
+    /// k     the used block we want to deallocate.
+    /// s
+    /// ```
+    ///
+    /// If the blocks are adjacent, we merge them:
+    ///
+    /// ```notrust
+    ///    Address space
+    ///   I------I
+    /// B        I-----------------I
+    /// l                                  I--------I
+    /// k
+    /// s
+    /// ```
+    ///
+    /// This gives us:
+    ///
+    /// ```notrust
+    ///    Address space
+    ///   I------------------------I
+    /// B                                  I--------I
+    /// l
+    /// k
+    /// s
+    /// ```
+    ///
+    /// And we're done. If it cannot be done, we insert the block, while keeping the list sorted.
+    /// See [`insert`](#method.insert) for details.
     fn free(&mut self, block: Block) {
         let ind = self.find(&block);
 
@@ -507,6 +457,57 @@ impl BlockList {
     /// If the space is non-empty, the elements will be pushed filling out the empty gaps to the
     /// right. If all places to the right is occupied, it will reserve additional space to the
     /// block list.
+    ///
+    /// # Example
+    /// We want to insert the block denoted by the tildes into our list. Perform a binary search to
+    /// find where insertion is appropriate.
+    ///
+    /// ```notrust
+    ///    Address space
+    ///   I------I
+    /// B < here                      I--------I
+    /// l                                              I------------I
+    /// k
+    /// s                                                             I---I
+    ///                  I~~~~~~~~~~I
+    /// ```
+    ///
+    /// We keep pushing the blocks to the right to the next entry until a empty entry is reached:
+    ///
+    /// ```notrust
+    ///    Address space
+    ///   I------I
+    /// B < here                      I--------I <~ this one cannot move down, due to being blocked.
+    /// l
+    /// k                                              I------------I <~ thus we have moved this one down.
+    /// s                                                             I---I
+    ///              I~~~~~~~~~~I
+    /// ```
+    ///
+    /// Repeating yields:
+    ///
+    /// ```notrust
+    ///    Address space
+    ///   I------I
+    /// B < here
+    /// l                             I--------I <~ this one cannot move down, due to being blocked.
+    /// k                                              I------------I <~ thus we have moved this one down.
+    /// s                                                             I---I
+    ///              I~~~~~~~~~~I
+    /// ```
+    ///
+    /// Now an empty space is left out, meaning that we can insert the block:
+    ///
+    /// ```notrust
+    ///    Address space
+    ///   I------I
+    /// B            I----------I
+    /// l                             I--------I
+    /// k                                              I------------I
+    /// s                                                             I---I
+    /// ```
+    ///
+    /// The insertion is now completed.
     fn insert(&mut self, ind: usize, block: BlockEntry) {
         let len = self.len;
 
