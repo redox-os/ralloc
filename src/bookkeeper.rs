@@ -104,8 +104,8 @@ fn canonicalize_brk(size: usize) -> usize {
 ///
 /// This primitive is used for keeping track of the free blocks.
 ///
-/// Guarantees made.
-/// ================
+/// Guarantees
+/// ==========
 ///
 /// Certain guarantees are made:
 ///
@@ -116,7 +116,7 @@ fn canonicalize_brk(size: usize) -> usize {
 /// Merging
 /// =======
 ///
-/// Merging is the way the block lists keep these guarentees. Merging works by adding two adjacent
+/// Merging is the way the block lists keep these guarantees. Merging works by adding two adjacent
 /// free blocks to one, and then marking the secondary block as occupied.
 struct BlockList {
     /// The capacity of the block list.

@@ -38,8 +38,8 @@ impl Ord for Block {
 }
 
 impl cmp::PartialEq for Block {
-    fn eq(&self, _: &Block) -> bool {
-        false
+    fn eq(&self, other: &Block) -> bool {
+        self.size == other.size && *self.ptr == *other.ptr
     }
 }
 
