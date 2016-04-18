@@ -7,6 +7,7 @@
 #![cfg_attr(test, feature(const_fn))]
 
 #![feature(alloc)]
+#![feature(heap_api)]
 #![feature(stmt_expr_attributes)]
 #![feature(unique)]
 
@@ -22,6 +23,6 @@ extern crate syscall;
 extern crate extra;
 extern crate alloc;
 
-mod sys;
-mod block;
-mod bookkeeper;
+pub mod block;
+pub mod bookkeeper;
+pub mod sys;

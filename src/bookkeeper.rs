@@ -12,6 +12,8 @@ use std::mem::align_of;
 use std::{ops, ptr, slice, cmp};
 use std::ptr::Unique;
 
+use alloc::heap;
+
 use extra::option::OptionalExt;
 
 /// The memory bookkeeper.
@@ -26,6 +28,15 @@ pub struct Bookkeeper {
 }
 
 impl Bookkeeper {
+    /// Construct a new, empty bookkeeper.
+    ///
+    /// No allocations or BRKs are done.
+    pub fn new() -> Bookkeeper {
+        Bookkeeper {
+            block_list: BlockList::new(),
+        }
+    }
+
     /// Allocate a chunk of memory.
     ///
     /// This function takes a size and an alignment. From these a fitting block is found, to which
@@ -57,9 +68,32 @@ impl Bookkeeper {
     ///
     /// After this have been called, no guarantees are made about the passed pointer. If it want
     /// to, it could begin shooting laser beams.
-    fn free(&mut self, block: Block) {
+    pub fn free(&mut self, block: Block) {
         self.block_list.free(block)
     }
+}
+
+/// Calculate the aligner.
+///
+/// The aligner is what we add to a pointer to align it to a given value.
+fn aligner(ptr: *mut u8, align: usize) -> usize {
+    align - ptr as usize % align
+}
+
+/// Canonicalize a BRK request.
+///
+/// Syscalls can be expensive, which is why we would rather accquire more memory than necessary,
+/// than having many syscalls acquiring memory stubs. Memory stubs are small blocks of memory,
+/// which are essentially useless until merge with another block.
+///
+/// To avoid many syscalls and accumulating memory stubs, we BRK a little more memory than
+/// necessary. This function calculate the memory to be BRK'd based on the necessary memory.
+fn canonicalize_brk(size: usize) -> usize {
+    const BRK_MULTIPLIER: usize = 1;
+    const BRK_MIN: usize = 200;
+    const BRK_MIN_EXTRA: usize = 500;
+
+    cmp::max(BRK_MIN, size + cmp::min(BRK_MULTIPLIER * size, BRK_MIN_EXTRA))
 }
 
 /// A block list.
@@ -238,30 +272,18 @@ struct BlockList {
     ptr: Unique<BlockEntry>,
 }
 
-/// Calculate the aligner.
-///
-/// The aligner is what we add to a pointer to align it to a given value.
-fn aligner(ptr: *mut u8, align: usize) -> usize {
-    align - ptr as usize % align
-}
-
-/// Canonicalize a BRK request.
-///
-/// Syscalls can be expensive, which is why we would rather accquire more memory than necessary,
-/// than having many syscalls acquiring memory stubs. Memory stubs are small blocks of memory,
-/// which are essentially useless until merge with another block.
-///
-/// To avoid many syscalls and accumulating memory stubs, we BRK a little more memory than
-/// necessary. This function calculate the memory to be BRK'd based on the necessary memory.
-fn canonicalize_brk(size: usize) -> usize {
-    const BRK_MULTIPLIER: usize = 1;
-    const BRK_MIN: usize = 200;
-    const BRK_MIN_EXTRA: usize = 500;
-
-    cmp::max(BRK_MIN, size + cmp::min(BRK_MULTIPLIER * size, BRK_MIN_EXTRA))
-}
-
 impl BlockList {
+    /// Create a new, empty block list.
+    ///
+    /// This will make no allocations or BRKs.
+    fn new() -> BlockList {
+        BlockList {
+            cap: 0,
+            len: 0,
+            ptr: unsafe { Unique::new(heap::EMPTY as *mut _) },
+        }
+    }
+
     /// *[See `Bookkeeper`'s respective method.](./struct.Bookkeeper.html#method.alloc)*
     fn alloc(&mut self, size: usize, align: usize) -> Unique<u8> {
         let mut ins = None;

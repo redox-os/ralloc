@@ -69,6 +69,7 @@ pub fn inc_brk(n: usize) -> Result<Unique<u8>, Error> {
     }
 }
 
+/// Redox syscall, BRK.
 #[cfg(target_os = "redox")]
 unsafe fn sys_brk(n: usize) -> Result<usize, Error> {
     use system::syscall;
@@ -80,6 +81,7 @@ unsafe fn sys_brk(n: usize) -> Result<usize, Error> {
     }
 }
 
+/// Unix syscall, BRK.
 #[cfg(not(target_os = "redox"))]
 unsafe fn sys_brk(n: usize) -> Result<usize, Error> {
     let ret = syscall!(BRK, n);
