@@ -1,6 +1,6 @@
 //! System primitives.
 
-use std::ptr::Unique;
+use core::ptr::Unique;
 
 /// Out of memory.
 ///
@@ -11,7 +11,10 @@ pub fn oom() -> ! {
     panic!("Out of memory.");
 
     #[cfg(not(test))]
-    ::alloc::oom();
+    {
+        use fail;
+        fail::oom();
+    }
 }
 
 /// A system call error.
@@ -56,7 +59,7 @@ pub fn inc_brk(n: usize) -> Result<Unique<u8>, Error> {
         }
     }
 
-    let expected_end = maybe!(orig_seg_end.checked_add(n) => return Err(Error::ArithOverflow));
+    let expected_end = try!(orig_seg_end.checked_add(n).ok_or(Error::ArithOverflow));
     let new_seg_end = try!(unsafe { sys_brk(expected_end) });
 
     if new_seg_end != expected_end {
@@ -96,46 +99,15 @@ unsafe fn sys_brk(n: usize) -> Result<usize, Error> {
 #[cfg(test)]
 mod test {
     use super::*;
-    use std::ptr;
 
     #[test]
     fn test_oom() {
-        assert_eq!(inc_brk(9999999999999), Err(Error::OutOfMemory));
-    }
-
-    #[test]
-    fn test_write() {
-        let alloc_before = Box::new("hello from the outside.");
-        let ptr = unsafe { (segment_end().unwrap() as *const u8).offset(-1) };
-        let byte_end = unsafe { ptr::read(ptr) };
-
-        let abc = "abc";
-        let mem = inc_brk(8).unwrap() as *mut u64;
-        unsafe {
-            *mem = 90823;
-            *mem = 2897309273;
-            *mem = 293872;
-            *mem = 0xDEADBEAFDEADBEAF;
-            *mem = 99999;
-
-            assert_eq!(*mem, 99999);
-        }
-
-        // Do some heap allocations.
-        println!("test");
-        let bx = Box::new("yo mamma is so nice.");
-        println!("{}", bx);
-
-        assert_eq!(*bx, "yo mamma is so nice.");
-        assert_eq!(*alloc_before, "hello from the outside.");
-        // Check that the stack frame is unaltered.
-        assert_eq!(abc, "abc");
-        assert_eq!(byte_end, unsafe { ptr::read(ptr) });
+        assert_eq!(inc_brk(9999999999999).err(), Some(Error::OutOfMemory));
     }
 
     #[test]
     fn test_read() {
-        let mem = inc_brk(8).unwrap() as *mut u64;
+        let mem = *inc_brk(8).unwrap() as *mut u64;
         unsafe {
             assert_eq!(*mem, 0);
         }
@@ -143,42 +115,25 @@ mod test {
 
     #[test]
     fn test_overflow() {
-        assert_eq!(inc_brk(!0), Err(Error::ArithOverflow));
-        assert_eq!(inc_brk(!0 - 2000), Err(Error::ArithOverflow));
+        assert_eq!(inc_brk(!0).err(), Some(Error::ArithOverflow));
+        assert_eq!(inc_brk(!0 - 2000).err(), Some(Error::ArithOverflow));
     }
 
     #[test]
     fn test_empty() {
-        assert_eq!(inc_brk(0), segment_end())
+        assert_eq!(*inc_brk(0).unwrap(), segment_end().unwrap())
     }
 
     #[test]
     fn test_seq() {
-        let a = inc_brk(4).unwrap() as usize;
-        let b = inc_brk(5).unwrap() as usize;
-        let c = inc_brk(6).unwrap() as usize;
-        let d = inc_brk(7).unwrap() as usize;
+        let a = *inc_brk(4).unwrap() as usize;
+        let b = *inc_brk(5).unwrap() as usize;
+        let c = *inc_brk(6).unwrap() as usize;
+        let d = *inc_brk(7).unwrap() as usize;
 
         assert_eq!(a + 4, b);
         assert_eq!(b + 5, c);
         assert_eq!(c + 6, d);
-    }
-
-    #[test]
-    fn test_thread() {
-        use std::thread;
-
-        let mut threads = Vec::new();
-
-        for _ in 0..1000 {
-            threads.push(thread::spawn(|| {
-                inc_brk(9999).unwrap();
-            }));
-        }
-
-        for i in threads {
-            i.join().unwrap();
-        }
     }
 
     #[test]

@@ -1,7 +1,7 @@
 //! Memory primitives.
 
-use std::{ops, cmp};
-use std::ptr::Unique;
+use core::{ops, cmp};
+use core::ptr::Unique;
 
 /// A contigious memory block.
 pub struct Block {
@@ -89,5 +89,89 @@ impl From<Block> for BlockEntry {
             block: block,
             free: true,
         }
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+    use core::ptr::Unique;
+
+    #[test]
+    fn test_end() {
+        let a = Block {
+            size: 10,
+            ptr: unsafe { Unique::new(10 as *mut _) },
+        };
+        let b = Block {
+            size: 15,
+            ptr: unsafe { Unique::new(25 as *mut _) },
+        };
+        let c = Block {
+            size: 75,
+            ptr: unsafe { Unique::new(40 as *mut _) },
+        };
+
+        assert_eq!(*a.end(), *b.ptr);
+        assert_eq!(*b.end(), *c.ptr);
+    }
+
+    #[test]
+    fn test_from() {
+        let ent: BlockEntry = Block {
+            size: 10,
+            ptr: unsafe { Unique::new(10 as *mut _) },
+        }.into();
+        assert!(ent.free)
+    }
+
+    #[test]
+    fn test_left_to() {
+        let a = Block {
+            size: 10,
+            ptr: unsafe { Unique::new(10 as *mut _) },
+        };
+        let b = Block {
+            size: 15,
+            ptr: unsafe { Unique::new(25 as *mut _) },
+        };
+        let c = Block {
+            size: 75,
+            ptr: unsafe { Unique::new(40 as *mut _) },
+        };
+
+        assert!(a.left_to(&b));
+        assert!(b.left_to(&c));
+        assert!(!c.left_to(&a));
+        assert!(!a.left_to(&c));
+        assert!(!b.left_to(&b));
+        assert!(!b.left_to(&a));
+    }
+
+    #[test]
+    fn test_cmp() {
+        let a = Block {
+            size: 10,
+            ptr: unsafe { Unique::new(10 as *mut _) },
+        };
+        let b = Block {
+            size: 15,
+            ptr: unsafe { Unique::new(25 as *mut _) },
+        };
+        let c = Block {
+            size: 75,
+            ptr: unsafe { Unique::new(40 as *mut _) },
+        };
+
+        assert!(a < b);
+        assert!(b < c);
+        assert!(c > a);
+        assert!(a == a);
+        assert!(b == b);
+        assert!(c == c);
+        assert!(c >= c);
+        assert!(c <= c);
+        assert!(a <= c);
+        assert!(b >= a);
     }
 }

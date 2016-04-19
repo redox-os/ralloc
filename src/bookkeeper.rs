@@ -8,13 +8,12 @@
 use block::{BlockEntry, Block};
 use sys;
 
-use std::mem::align_of;
-use std::{ops, ptr, slice, cmp};
-use std::ptr::Unique;
+use core::mem::align_of;
+use core::{ops, ptr, slice, cmp, intrinsics};
+use core::ptr::Unique;
 
-use alloc::heap;
-
-use extra::option::OptionalExt;
+/// An address representing an "empty" or non-allocated value on the heap.
+const EMPTY_HEAP: *mut u8 = 0x1 as *mut _;
 
 /// The memory bookkeeper.
 ///
@@ -28,6 +27,15 @@ use extra::option::OptionalExt;
 /// to be rendered with private item exposed).
 pub struct Bookkeeper {
     /// The internal block list.
+    ///
+    /// Guarantees
+    /// ==========
+    ///
+    /// Certain guarantees are made:
+    ///
+    /// 1. The list is always sorted with respect to the block's pointers.
+    /// 2. No two free blocks overlap.
+    /// 3. No two free blocks are adjacent.
     block_list: BlockList,
 }
 
@@ -72,6 +80,8 @@ impl Bookkeeper {
     ///
     /// After this have been called, no guarantees are made about the passed pointer. If it want
     /// to, it could begin shooting laser beams.
+    ///
+    /// Freeing an invalid block will drop all future guarantees about this bookkeeper.
     pub fn free(&mut self, block: Block) {
         self.block_list.free(block)
     }
@@ -103,21 +113,6 @@ fn canonicalize_brk(size: usize) -> usize {
 /// A block list.
 ///
 /// This primitive is used for keeping track of the free blocks.
-///
-/// Guarantees
-/// ==========
-///
-/// Certain guarantees are made:
-///
-/// 1. The list is always sorted with respect to the block's pointers.
-/// 2. No two free blocks overlap.
-/// 3. No two free blocks are adjacent.
-///
-/// Merging
-/// =======
-///
-/// Merging is the way the block lists keep these guarantees. Merging works by adding two adjacent
-/// free blocks to one, and then marking the secondary block as occupied.
 struct BlockList {
     /// The capacity of the block list.
     cap: usize,
@@ -135,7 +130,7 @@ impl BlockList {
         BlockList {
             cap: 0,
             len: 0,
-            ptr: unsafe { Unique::new(heap::EMPTY as *mut _) },
+            ptr: unsafe { Unique::new(EMPTY_HEAP as *mut _) },
         }
     }
 
@@ -229,7 +224,7 @@ impl BlockList {
         self.reserve(len + 1);
 
         unsafe {
-            ptr::write((&mut *self.last_mut().unchecked_unwrap() as *mut _).offset(1), block);
+            ptr::write((&mut *self.last_mut().unwrap_or_else(|| intrinsics::unreachable()) as *mut _).offset(1), block);
         }
 
         // Check consistency.

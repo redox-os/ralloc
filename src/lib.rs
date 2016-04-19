@@ -3,11 +3,12 @@
 //! This crates define the user space allocator for Redox, which emphasizes performance and memory
 //! efficiency.
 
-#![cfg_attr(not(test), feature(oom))]
-#![cfg_attr(test, feature(const_fn))]
+#![allocator]
+#![no_std]
 
-#![feature(alloc)]
-#![feature(heap_api)]
+#![feature(allocator)]
+#![feature(const_fn)]
+#![feature(core_intrinsics)]
 #![feature(stmt_expr_attributes)]
 #![feature(unique)]
 
@@ -19,10 +20,8 @@ extern crate system;
 #[macro_use]
 extern crate syscall;
 
-#[macro_use]
-extern crate extra;
-extern crate alloc;
-
+pub mod allocator;
 pub mod block;
 pub mod bookkeeper;
+pub mod fail;
 pub mod sys;
