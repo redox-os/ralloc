@@ -4,10 +4,8 @@
 //! allocation, deallocation, and reallocation for Rust.
 
 use core::intrinsics;
-use core::ptr::Unique;
 use core::sync::atomic;
 
-use block::Block;
 use bookkeeper::Bookkeeper;
 use sys;
 
@@ -52,6 +50,7 @@ fn get_bookkeeper() -> &'static mut Bookkeeper {
 
 /// Allocate memory.
 #[no_mangle]
+#[cfg(feature = "allocator")]
 pub extern fn __rust_allocate(size: usize, align: usize) -> *mut u8 {
     let res = *get_bookkeeper().alloc(size, align);
     unsafe { unlock_bookkeeper() }
@@ -61,7 +60,11 @@ pub extern fn __rust_allocate(size: usize, align: usize) -> *mut u8 {
 
 /// Deallocate memory.
 #[no_mangle]
+#[cfg(feature = "allocator")]
 pub extern fn __rust_deallocate(ptr: *mut u8, size: usize, _align: usize) {
+    use block::Block;
+    use core::ptr::Unique;
+
     let res = get_bookkeeper().free(Block {
         size: size,
         ptr: unsafe { Unique::new(ptr) },
@@ -73,7 +76,11 @@ pub extern fn __rust_deallocate(ptr: *mut u8, size: usize, _align: usize) {
 
 /// Reallocate memory.
 #[no_mangle]
+#[cfg(feature = "allocator")]
 pub extern fn __rust_reallocate(ptr: *mut u8, old_size: usize, size: usize, align: usize) -> *mut u8 {
+    use block::Block;
+    use core::ptr::Unique;
+
     let res = *get_bookkeeper().realloc(Block {
         size: old_size,
         ptr: unsafe { Unique::new(ptr) },
@@ -85,12 +92,14 @@ pub extern fn __rust_reallocate(ptr: *mut u8, old_size: usize, size: usize, alig
 
 /// Return the maximal amount of inplace reallocation that can be done.
 #[no_mangle]
+#[cfg(feature = "allocator")]
 pub extern fn __rust_reallocate_inplace(_ptr: *mut u8, old_size: usize, _size: usize, _align: usize) -> usize {
     old_size // TODO
 }
 
 /// Get the usable size of the some number of bytes of allocated memory.
 #[no_mangle]
+#[cfg(feature = "allocator")]
 pub extern fn __rust_usable_size(size: usize, _align: usize) -> usize {
     size
 }

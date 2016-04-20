@@ -136,18 +136,6 @@ mod test {
     }
 
     #[test]
-    fn test_seq() {
-        let a = *inc_brk(4).unwrap() as usize;
-        let b = *inc_brk(5).unwrap() as usize;
-        let c = *inc_brk(6).unwrap() as usize;
-        let d = *inc_brk(7).unwrap() as usize;
-
-        assert_eq!(a + 4, b);
-        assert_eq!(b + 5, c);
-        assert_eq!(c + 6, d);
-    }
-
-    #[test]
     fn test_segment_end() {
         assert_eq!(segment_end().unwrap(), segment_end().unwrap());
         assert_eq!(segment_end().unwrap(), segment_end().unwrap());

@@ -3,7 +3,7 @@
 //! This crates define the user space allocator for Redox, which emphasizes performance and memory
 //! efficiency.
 
-#![allocator]
+#![cfg_attr(feature = "allocator", allocator)]
 #![no_std]
 
 #![feature(allocator)]

@@ -5,3 +5,7 @@ authors = ["ticki <ticki@users.noreply.github.com>"]
 
 [target.'cfg(unix)'.dependencies]
 syscall = "0.2.1"
+
+[features]
+default = ["allocator"]
+allocator = []

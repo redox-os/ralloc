@@ -102,17 +102,23 @@ fn aligner(ptr: *mut u8, align: usize) -> usize {
 ///
 /// To avoid many syscalls and accumulating memory stubs, we BRK a little more memory than
 /// necessary. This function calculate the memory to be BRK'd based on the necessary memory.
+///
+/// The return value is always greater than or equals to the argument.
 fn canonicalize_brk(size: usize) -> usize {
     const BRK_MULTIPLIER: usize = 1;
     const BRK_MIN: usize = 200;
-    const BRK_MIN_EXTRA: usize = 500;
+    const BRK_MIN_EXTRA: usize = 10000; // TODO tune this?
 
-    cmp::max(BRK_MIN, size + cmp::min(BRK_MULTIPLIER * size, BRK_MIN_EXTRA))
+    cmp::max(BRK_MIN, size.saturating_add(cmp::min(BRK_MULTIPLIER * size, BRK_MIN_EXTRA)))
 }
 
 /// A block list.
 ///
 /// This primitive is used for keeping track of the free blocks.
+///
+/// Only making use of only [`alloc`](#method.alloc), [`free`](#method.free),
+/// [`realloc`](#method.realloc) (and following their respective assumptions) guarantee that no
+/// buffer overrun, segfault, arithmetic overflow, or otherwise unexpected crash.
 struct BlockList {
     /// The capacity of the block list.
     cap: usize,
@@ -174,42 +180,46 @@ impl BlockList {
     ///
     /// The pointer to the marked area is then returned.
     fn alloc(&mut self, size: usize, align: usize) -> Unique<u8> {
-        let mut ins = None;
+        // This variable will keep block, we will return as allocated memory.
+        let mut block = None;
 
         // We run right-to-left, since new blocks tend to get added to the right.
         for (n, i) in self.iter_mut().enumerate().rev() {
             let aligner = aligner(*i.ptr, align);
 
-            if i.size - aligner >= size {
-                // Set the excessive space as free.
-                ins = Some((n, Block {
-                    size: i.size - aligner - size,
-                    ptr: unsafe { Unique::new((*i.ptr as usize + aligner + size) as *mut _) },
+            if i.free && i.size - aligner >= size {
+                // Use this block as the one, we use for our allocation.
+                block = Some((n, Block {
+                    size: i.size,
+                    ptr: unsafe { Unique::new((*i.ptr as usize + aligner) as *mut _) },
                 }));
 
                 // Leave the stub behind.
                 if aligner == 0 {
+                    // Since the stub is empty, we are not interested in keeping it marked as free.
                     i.free = false;
                 } else {
                     i.size = aligner;
                 }
+
+                break;
             }
         }
 
-        if let Some((n, b)) = ins {
-            let res = unsafe {
-                Unique::new((*b.ptr as usize - size) as *mut _)
-            };
-
-            if b.size != 0 {
-                self.insert(n, b.into());
+        if let Some((n, b)) = block {
+            if b.size != size {
+                // Mark the excessive space as free.
+                self.insert(n, Block {
+                    size: b.size - size,
+                    ptr: unsafe { Unique::new((*b.ptr as usize + size) as *mut _) },
+                }.into());
             }
 
             // Check consistency.
             self.check();
-            debug_assert!(*res as usize % align == 0, "Alignment in `alloc` failed.");
+            debug_assert!(*b.ptr as usize % align == 0, "Alignment in `alloc` failed.");
 
-            res
+            b.ptr
         } else {
             // No fitting block found. Allocate a new block.
             self.alloc_fresh(size, align)
@@ -222,6 +232,9 @@ impl BlockList {
     /// a value higher than any of the elements in the list, to keep it sorted.
     fn push(&mut self, block: BlockEntry) {
         let len = self.len;
+        // This is guaranteed not to overflow, since `len` is bounded by the address space, since
+        // each entry represent at minimum one byte, meaning that `len` is bounded by the address
+        // space.
         self.reserve(len + 1);
 
         unsafe {
@@ -250,7 +263,7 @@ impl BlockList {
         // Calculate the aligner.
         let aligner = aligner(seg_end, align);
         // Use SYSBRK to allocate extra data segment.
-        let ptr = sys::inc_brk(can_size + aligner).unwrap_or_else(|x| x.handle());
+        let ptr = sys::inc_brk(can_size.checked_add(aligner).unwrap_or_else(|| sys::oom())).unwrap_or_else(|x| x.handle());
 
         let alignment_block = Block {
             size: aligner,
@@ -267,6 +280,7 @@ impl BlockList {
 
         // Add the extra space allocated.
         self.push(Block {
+            // This won't overflow, since `can_size` is bounded by `size`
             size: can_size - size,
             ptr: res.end(),
         }.into());
@@ -291,29 +305,60 @@ impl BlockList {
     ///    new size.
     /// 2. No changes are made to the allocated buffer itself.
     /// 3. On failure, the state of the allocator is left unmodified.
-    fn realloc_inplace(&mut self, ind: usize, old_size: usize, size: usize) -> Result<(), ()> {
-        if ind == self.len - 1 { return Err(()) }
+    fn realloc_inplace(&mut self, ind: usize, size: usize) -> Result<(), ()> {
+        // Bound check.
+        if ind == self.len { return Err(()) }
+        debug_assert!(ind < self.len, "Index out of bound.");
 
-        let additional = old_size - size;
+        if self[ind].size < size {
+            // `ind` + 1 is guaranteed to not overflow, since it is bounded (by the array bound check)
+            // by `self.len`, which is bounded by the address space (it is strictly less than the
+            // address space, since each entry is more than one byte).
 
-        if old_size + self[ind + 1].size >= size {
-            // Leave the excessive space.
-            self[ind + 1].ptr = unsafe {
-                Unique::new((*self[ind + 1].ptr as usize + additional) as *mut _)
-            };
-            self[ind + 1].size -= additional;
+            // The addition of the sizes are guaranteed not to overflow, due to only being reach if the
+            // next block is free, effectively asserting that the blocks are disjoint, implying that
+            // their sum is bounded by the address space (see the guarantees).
+            if self[ind + 1].free && self[ind].size + self[ind + 1].size >= size {
+                // Calculate the additional space.
+                //
+                // This is guaranteed to not overflow, since the `if` statement's condition implies
+                // so.
+                let additional = size - self[ind].size;
 
-            // Set the excessive block as free if it is empty.
-            if self[ind + 1].size == 0 {
-                self[ind + 1].free = false;
+                // Leave the excessive space.
+                self[ind + 1].ptr = unsafe {
+                    Unique::new((*self[ind + 1].ptr as usize + additional) as *mut _)
+                };
+                self[ind + 1].size -= additional;
+
+                // Set the excessive block as free if it is empty.
+                if self[ind + 1].size == 0 {
+                    self[ind + 1].free = false;
+                }
+
+                // Check consistency.
+                self.check();
+
+                Ok(())
+            } else {
+                Err(())
             }
+        } else {
+            // Resize our block.
+            self[ind].size = size;
 
-            // Check consistency.
-            self.check();
+            // Calculate the excessive space.
+            //
+            // This will not overflow due to the negation of the condition in the if statement.
+            let rest = self[ind].size - size;
+            // Free the excessive part.
+            let exc_ptr = self[ind].end();
+            self.free(Block {
+                size: rest,
+                ptr: exc_ptr,
+            });
 
             Ok(())
-        } else {
-            Err(())
         }
     }
 
@@ -342,7 +387,7 @@ impl BlockList {
     fn realloc(&mut self, block: Block, new_size: usize, align: usize) -> Unique<u8> {
         let ind = self.find(&block);
 
-        if self.realloc_inplace(ind, block.size, new_size).is_ok() {
+        if self.realloc_inplace(ind, new_size).is_ok() {
             block.ptr
         } else {
             // Reallocation cannot be done inplace.
@@ -370,6 +415,9 @@ impl BlockList {
     /// reallocating the block list.
     fn reserve(&mut self, needed: usize) {
         if needed > self.cap {
+            // Set the new capacity.
+            self.cap = self.cap.saturating_mul(2);
+
             // Reallocate the block list.
             self.ptr = unsafe {
                 let block = Block {
@@ -377,10 +425,9 @@ impl BlockList {
                     size: self.cap,
                 };
 
-                Unique::new(*self.realloc(block, needed * 2, align_of::<BlockEntry>()) as *mut _)
+                let cap = self.cap;
+                Unique::new(*self.realloc(block, cap, align_of::<BlockEntry>()) as *mut _)
             };
-            // Update the capacity.
-            self.cap = needed * 2;
 
             // Check consistency.
             self.check();
@@ -436,12 +483,14 @@ impl BlockList {
     fn free(&mut self, block: Block) {
         let ind = self.find(&block);
 
-        // Try to merge left.
-        if ind != 0 && self[ind - 1].left_to(&block) {
-            self[ind - 1].size += block.size;
+        debug_assert!(*self[ind].ptr != *block.ptr || !self[ind].free, "Double free.");
+
         // Try to merge right.
-        } else if ind < self.len - 1 && self[ind].left_to(&block) {
+        if self[ind].free && ind < self.len - 1 && self[ind].left_to(&block) {
             self[ind].size += block.size;
+        // Try to merge left. Note that `self[ind]` is not free, by the conditional above.
+        } else if self[ind - 1].free && ind != 0 && self[ind - 1].left_to(&block) {
+            self[ind - 1].size += block.size;
         } else {
             self.insert(ind, block.into());
         }
@@ -507,7 +556,7 @@ impl BlockList {
     ///
     /// The insertion is now completed.
     fn insert(&mut self, ind: usize, block: BlockEntry) {
-        let len = self.len;
+        // TODO consider moving right before searching left.
 
         // Find the next gap, where a used block were.
         let n = self.iter()
@@ -516,9 +565,13 @@ impl BlockList {
             .filter(|&(_, x)| x.free)
             .next().map(|x| x.0)
             .unwrap_or_else(|| {
+                let len = self.len;
+
                 // No gap was found, so we need to reserve space for new elements.
                 self.reserve(len + 1);
-                ind
+                // Increment the length, since a gap haven't been found.
+                self.len += 1;
+                len
             });
 
         // Memmove the blocks to close in that gap.
@@ -528,7 +581,6 @@ impl BlockList {
 
         // Place the block left to the moved line.
         self[ind] = block;
-        self.len += 1;
 
         // Check consistency.
         self.check();
@@ -561,7 +613,30 @@ impl BlockList {
         }
 
         // Check that the length is lower than or equals to the capacity.
-        assert!(self.len <= self.cap, "The capacity does not cover the length.")
+        assert!(self.len <= self.cap, "The capacity does not cover the length.");
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+    use block::Block;
+
+    use core::ptr;
+
+    #[test]
+    fn test_alloc() {
+        let mut bk = Bookkeeper::new();
+        let mem = bk.alloc(1000, 4);
+
+        unsafe {
+            ptr::write(*mem as *mut _, [1u8; 1000]);
+        }
+
+        bk.free(Block {
+            size: 1000,
+            ptr: mem,
+        });
     }
 }
 
