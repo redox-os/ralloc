@@ -1,11 +1,9 @@
 //! The memory bookkeeping module.
 //!
 //! Blocks are the main unit for the memory bookkeeping. A block is a simple construct with a
-//! `Unique` pointer and a size. `BlockEntry` contains an additional field, which marks if a block
-//! is free or not. The block list is simply a continuous list of block entries kept in the
-//! bookkeeper.
+//! `Unique` pointer and a size. Occupied (non-free) blocks are represented by a zero-sized block.
 
-use block::{BlockEntry, Block};
+use block::Block;
 use sys;
 
 use core::mem::align_of;
@@ -19,9 +17,9 @@ const EMPTY_HEAP: *mut u8 = 0x1 as *mut _;
 ///
 /// This is the main primitive in ralloc. Its job is to keep track of the free blocks in a
 /// structured manner, such that allocation, reallocation, and deallocation are all efficient.
-/// Parituclarly, it keeps a list of free blocks, commonly called the "block list". This list is
-/// kept. Entries in the block list can be "empty", meaning that you can overwrite the entry
-/// without breaking consistency.
+/// Parituclarly, it keeps a list of blocks, commonly called the "block list". This list is kept.
+/// Entries in the block list can be "empty", meaning that you can overwrite the entry without
+/// breaking consistency.
 ///
 /// For details about the internals, see [`BlockList`](./struct.BlockList.html) (requires the docs
 /// to be rendered with private item exposed).
@@ -34,7 +32,7 @@ pub struct Bookkeeper {
     /// Certain guarantees are made:
     ///
     /// 1. The list is always sorted with respect to the block's pointers.
-    /// 2. No two free blocks overlap.
+    /// 2. No two blocks overlap.
     /// 3. No two free blocks are adjacent.
     block_list: BlockList,
 }
@@ -125,7 +123,7 @@ struct BlockList {
     /// The length of the block list.
     len: usize,
     /// The pointer to the first element in the block list.
-    ptr: Unique<BlockEntry>,
+    ptr: Unique<Block>,
 }
 
 impl BlockList {
@@ -187,7 +185,10 @@ impl BlockList {
         for (n, i) in self.iter_mut().enumerate().rev() {
             let aligner = aligner(*i.ptr, align);
 
-            if i.free && i.size - aligner >= size {
+            if i.size >= size + aligner {
+                // To catch dumb logic errors.
+                debug_assert!(i.is_free(), "Block is not free (What the fuck, Richard?)");
+
                 // Use this block as the one, we use for our allocation.
                 block = Some((n, Block {
                     size: i.size,
@@ -197,7 +198,7 @@ impl BlockList {
                 // Leave the stub behind.
                 if aligner == 0 {
                     // Since the stub is empty, we are not interested in keeping it marked as free.
-                    i.free = false;
+                    i.set_free();
                 } else {
                     i.size = aligner;
                 }
@@ -212,7 +213,7 @@ impl BlockList {
                 self.insert(n, Block {
                     size: b.size - size,
                     ptr: unsafe { Unique::new((*b.ptr as usize + size) as *mut _) },
-                }.into());
+                });
             }
 
             // Check consistency.
@@ -230,7 +231,7 @@ impl BlockList {
     ///
     /// This will append a block entry to the end of the block list. Make sure that this entry has
     /// a value higher than any of the elements in the list, to keep it sorted.
-    fn push(&mut self, block: BlockEntry) {
+    fn push(&mut self, block: Block) {
         let len = self.len;
         // This is guaranteed not to overflow, since `len` is bounded by the address space, since
         // each entry represent at minimum one byte, meaning that `len` is bounded by the address
@@ -249,7 +250,7 @@ impl BlockList {
     ///
     /// If it fails, the value will be where the block could be inserted to keep the list sorted.
     fn search(&mut self, block: &Block) -> Result<usize, usize> {
-        self.binary_search_by(|x| (**x).cmp(block))
+        self.binary_search_by(|x| x.cmp(block))
     }
 
     /// Allocate _fresh_ space.
@@ -276,14 +277,14 @@ impl BlockList {
 
         // Add it to the list. This will not change the order, since the pointer is higher than all
         // the previous blocks.
-        self.push(alignment_block.into());
+        self.push(alignment_block);
 
         // Add the extra space allocated.
         self.push(Block {
             // This won't overflow, since `can_size` is bounded by `size`
             size: can_size - size,
             ptr: res.end(),
-        }.into());
+        });
 
         // Check consistency.
         self.check();
@@ -318,7 +319,7 @@ impl BlockList {
             // The addition of the sizes are guaranteed not to overflow, due to only being reach if the
             // next block is free, effectively asserting that the blocks are disjoint, implying that
             // their sum is bounded by the address space (see the guarantees).
-            if self[ind + 1].free && self[ind].size + self[ind + 1].size >= size {
+            if self[ind + 1].is_free() && self[ind].size + self[ind + 1].size >= size {
                 // Calculate the additional space.
                 //
                 // This is guaranteed to not overflow, since the `if` statement's condition implies
@@ -330,11 +331,6 @@ impl BlockList {
                     Unique::new((*self[ind + 1].ptr as usize + additional) as *mut _)
                 };
                 self[ind + 1].size -= additional;
-
-                // Set the excessive block as free if it is empty.
-                if self[ind + 1].size == 0 {
-                    self[ind + 1].free = false;
-                }
 
                 // Check consistency.
                 self.check();
@@ -426,7 +422,7 @@ impl BlockList {
                 };
 
                 let cap = self.cap;
-                Unique::new(*self.realloc(block, cap, align_of::<BlockEntry>()) as *mut _)
+                Unique::new(*self.realloc(block, cap, align_of::<Block>()) as *mut _)
             };
 
             // Check consistency.
@@ -483,16 +479,16 @@ impl BlockList {
     fn free(&mut self, block: Block) {
         let ind = self.find(&block);
 
-        debug_assert!(*self[ind].ptr != *block.ptr || !self[ind].free, "Double free.");
+        debug_assert!(*self[ind].ptr != *block.ptr || !self[ind].is_free(), "Double free.");
 
         // Try to merge right.
-        if self[ind].free && ind < self.len - 1 && self[ind].left_to(&block) {
+        if self[ind].is_free() && ind + 1 < self.len && self[ind].left_to(&block) {
             self[ind].size += block.size;
         // Try to merge left. Note that `self[ind]` is not free, by the conditional above.
-        } else if self[ind - 1].free && ind != 0 && self[ind - 1].left_to(&block) {
+        } else if self[ind - 1].is_free() && ind != 0 && self[ind - 1].left_to(&block) {
             self[ind - 1].size += block.size;
         } else {
-            self.insert(ind, block.into());
+            self.insert(ind, block);
         }
 
         // Check consistency.
@@ -555,14 +551,14 @@ impl BlockList {
     /// ```
     ///
     /// The insertion is now completed.
-    fn insert(&mut self, ind: usize, block: BlockEntry) {
+    fn insert(&mut self, ind: usize, block: Block) {
         // TODO consider moving right before searching left.
 
         // Find the next gap, where a used block were.
         let n = self.iter()
             .skip(ind)
             .enumerate()
-            .filter(|&(_, x)| x.free)
+            .filter(|&(_, x)| x.is_free())
             .next().map(|x| x.0)
             .unwrap_or_else(|| {
                 let len = self.len;
@@ -608,7 +604,7 @@ impl BlockList {
         // Check if overlapping.
         let mut prev = *self[0].ptr;
         for (n, i) in self.iter().enumerate().skip(1) {
-            assert!(!i.free || *i.ptr > prev, "Two blocks are overlapping/adjacent at index, {}.", n);
+            assert!(!i.is_free() || *i.ptr > prev, "Two blocks are overlapping/adjacent at index, {}.", n);
             prev = *i.end();
         }
 
@@ -641,16 +637,16 @@ mod test {
 }
 
 impl ops::Deref for BlockList {
-    type Target = [BlockEntry];
+    type Target = [Block];
 
-    fn deref(&self) -> &[BlockEntry] {
+    fn deref(&self) -> &[Block] {
         unsafe {
             slice::from_raw_parts(*self.ptr as *const _, self.len)
         }
     }
 }
 impl ops::DerefMut for BlockList {
-    fn deref_mut(&mut self) -> &mut [BlockEntry] {
+    fn deref_mut(&mut self) -> &mut [Block] {
         unsafe {
             slice::from_raw_parts_mut(*self.ptr, self.len)
         }

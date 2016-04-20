@@ -1,6 +1,6 @@
 //! Memory primitives.
 
-use core::{ops, cmp};
+use core::cmp;
 use core::ptr::Unique;
 
 /// A contigious memory block.
@@ -17,6 +17,19 @@ impl Block {
         unsafe {
             Unique::new((self.size + *self.ptr as usize) as *mut _)
         }
+    }
+
+    /// Is this block free?
+    pub fn is_free(&self) -> bool {
+        self.size != 0
+    }
+
+    /// Set this block as free.
+    ///
+    /// This will not deallocate, but it will simply set the size to zero, which is the
+    /// representation of a freeed block.
+    pub fn set_free(&mut self) {
+        self.size = 0;
     }
 
     /// Is this block is left to `to`?
@@ -45,53 +58,6 @@ impl cmp::PartialEq for Block {
 
 impl cmp::Eq for Block {}
 
-/// A block entry.
-///
-/// A block entry is a wrapper around `Block` containing an extra field telling if this block is
-/// free or not.
-#[derive(PartialEq, Eq)]
-pub struct BlockEntry {
-    /// The underlying block.
-    block: Block,
-    /// Is this block free?
-    pub free: bool,
-}
-
-impl ops::Deref for BlockEntry {
-    type Target = Block;
-
-    fn deref(&self) -> &Block {
-        &self.block
-    }
-}
-
-impl ops::DerefMut for BlockEntry {
-    fn deref_mut(&mut self) -> &mut Block {
-        &mut self.block
-    }
-}
-
-impl PartialOrd for BlockEntry {
-    fn partial_cmp(&self, other: &BlockEntry) -> Option<cmp::Ordering> {
-        self.block.partial_cmp(other)
-    }
-}
-
-impl Ord for BlockEntry {
-    fn cmp(&self, other: &BlockEntry) -> cmp::Ordering {
-        self.block.cmp(other)
-    }
-}
-
-impl From<Block> for BlockEntry {
-    fn from(block: Block) -> BlockEntry {
-        BlockEntry {
-            block: block,
-            free: true,
-        }
-    }
-}
-
 #[cfg(test)]
 mod test {
     use super::*;
@@ -114,15 +80,6 @@ mod test {
 
         assert_eq!(*a.end(), *b.ptr);
         assert_eq!(*b.end(), *c.ptr);
-    }
-
-    #[test]
-    fn test_from() {
-        let ent: BlockEntry = Block {
-            size: 10,
-            ptr: unsafe { Unique::new(10 as *mut _) },
-        }.into();
-        assert!(ent.free)
     }
 
     #[test]
