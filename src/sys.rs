@@ -2,19 +2,14 @@
 
 use core::ptr::Unique;
 
+use fail;
+
 /// Out of memory.
 ///
 /// In release mode, this will simply abort the process (standard behavior). In debug mode, it will
 /// panic, causing debugging to be easier.
 pub fn oom() -> ! {
-    #[cfg(test)]
-    panic!("Out of memory.");
-
-    #[cfg(not(test))]
-    {
-        use fail;
-        fail::oom();
-    }
+    fail::oom();
 }
 
 /// A system call error.
@@ -128,11 +123,6 @@ mod test {
     fn test_overflow() {
         assert_eq!(inc_brk(!0).err(), Some(Error::ArithOverflow));
         assert_eq!(inc_brk(!0 - 2000).err(), Some(Error::ArithOverflow));
-    }
-
-    #[test]
-    fn test_empty() {
-        assert_eq!(*inc_brk(0).unwrap(), segment_end().unwrap())
     }
 
     #[test]

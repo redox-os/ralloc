@@ -6,7 +6,7 @@
 use block::Block;
 use sys;
 
-use core::mem::align_of;
+use core::mem::{align_of, size_of};
 use core::{ops, ptr, slice, cmp, intrinsics};
 use core::ptr::Unique;
 
@@ -239,8 +239,10 @@ impl BlockList {
         self.reserve(len + 1);
 
         unsafe {
-            ptr::write((&mut *self.last_mut().unwrap_or_else(|| intrinsics::unreachable()) as *mut _).offset(1), block);
+            ptr::write((*self.ptr as usize + size_of::<Block>() * self.len) as *mut _, block);
         }
+
+        self.len += 1;
 
         // Check consistency.
         self.check();
@@ -412,7 +414,7 @@ impl BlockList {
     fn reserve(&mut self, needed: usize) {
         if needed > self.cap {
             // Set the new capacity.
-            self.cap = self.cap.saturating_mul(2);
+            self.cap = cmp::max(30, self.cap.saturating_mul(2));
 
             // Reallocate the block list.
             self.ptr = unsafe {
@@ -428,6 +430,27 @@ impl BlockList {
             // Check consistency.
             self.check();
         }
+        /*
+        if needed > self.cap {
+            // Set the new capacity.
+            self.cap = cmp::minkii(self.cap + 100, self.cap.saturating_mul(2));
+
+            // Reallocate the block list.
+            self.ptr = unsafe {
+                let block = Block {
+                    ptr: Unique::new(*self.ptr as *mut _),
+                    size: self.cap,
+                };
+
+                let cap = self.cap;
+                let ind = self.find(&block);
+                Unique::new(*self.realloc_inplace(block, ind, cap) as *mut _)
+            };
+
+            // Check consistency.
+            self.check();
+        }
+        */
     }
 
     /// Perform a binary search to find the appropriate place where the block can be insert or is
