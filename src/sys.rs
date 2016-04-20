@@ -38,6 +38,17 @@ impl Error {
     }
 }
 
+/// Cooperatively gives up a timeslice to the OS scheduler.
+pub fn yield_now() {
+    unsafe {
+        #[cfg(unix)]
+        syscall!(SCHED_YIELD);
+
+        #[cfg(redox)]
+        ::system::syscall::unix::sys_yield();
+    }
+}
+
 /// Retrieve the end of the current data segment.
 ///
 /// This will not change the state of the process in any way, and is thus safe.
@@ -47,8 +58,8 @@ pub fn segment_end() -> Result<*mut u8, Error> {
     }.map(|x| x as *mut _)
 }
 
-/// Increment data segment of this process by some (signed) _n_, return a pointer to the new data
-/// segment start.
+/// Increment data segment of this process by some, _n_, return a pointer to the new data segment
+/// start.
 ///
 /// This uses the system call BRK as backend.
 pub fn inc_brk(n: usize) -> Result<Unique<u8>, Error> {

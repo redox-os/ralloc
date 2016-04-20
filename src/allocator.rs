@@ -7,8 +7,9 @@ use core::intrinsics;
 use core::ptr::Unique;
 use core::sync::atomic;
 
-use bookkeeper::Bookkeeper;
 use block::Block;
+use bookkeeper::Bookkeeper;
+use sys;
 
 /// The bookkeeper lock.
 ///
@@ -35,8 +36,9 @@ unsafe fn unlock_bookkeeper() {
 fn get_bookkeeper() -> &'static mut Bookkeeper {
     unsafe {
         // Lock the mutex.
-        while BOOKKEEPER_LOCK.load(atomic::Ordering::SeqCst) {}
-        BOOKKEEPER_LOCK.store(true, atomic::Ordering::SeqCst);
+        while BOOKKEEPER_LOCK.compare_and_swap(false, true, atomic::Ordering::SeqCst) {
+            sys::yield_now();
+        }
 
         if let Some(ref mut x) = BOOKKEEPER {
             x
