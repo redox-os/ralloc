@@ -101,7 +101,7 @@ mod test {
     fn test_end() {
         let a = Block {
             size: 10,
-            ptr: unsafe { Unique::new(10 as *mut _) },
+            ptr: unsafe { Unique::new(15 as *mut _) },
         };
         let b = Block {
             size: 15,
@@ -129,7 +129,7 @@ mod test {
     fn test_left_to() {
         let a = Block {
             size: 10,
-            ptr: unsafe { Unique::new(10 as *mut _) },
+            ptr: unsafe { Unique::new(15 as *mut _) },
         };
         let b = Block {
             size: 15,
