@@ -207,6 +207,7 @@ impl BlockList {
 
             // Check consistency.
             self.check();
+            debug_assert!(*res as usize % align == 0, "Alignment in `alloc` failed.");
 
             res
         } else {
@@ -272,6 +273,7 @@ impl BlockList {
 
         // Check consistency.
         self.check();
+        debug_assert!(*res.ptr as usize % align == 0, "Alignment in `alloc_fresh` failed.");
 
         res.ptr
     }
@@ -356,6 +358,7 @@ impl BlockList {
 
             // Check consistency.
             self.check();
+            debug_assert!(*ptr as usize % align == 0, "Alignment in `realloc` failed.");
 
             ptr
         }
