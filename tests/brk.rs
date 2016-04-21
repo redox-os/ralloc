@@ -10,7 +10,7 @@ fn main() {
     let byte_end = unsafe { ptr::read(ptr) };
 
     let abc = "abc";
-    let mem = *inc_brk(8).unwrap() as *mut u64;
+    let mem = unsafe { *inc_brk(8).unwrap() as *mut u64 };
     unsafe {
         *mem = 90823;
         *mem = 2897309273;

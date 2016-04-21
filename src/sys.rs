@@ -47,34 +47,33 @@ pub fn yield_now() {
 /// Retrieve the end of the current data segment.
 ///
 /// This will not change the state of the process in any way, and is thus safe.
-pub fn segment_end() -> Result<*mut u8, Error> {
+pub fn segment_end() -> Result<*const u8, Error> {
     unsafe {
         sys_brk(0)
-    }.map(|x| x as *mut _)
+    }.map(|x| x as *const _)
 }
 
 /// Increment data segment of this process by some, _n_, return a pointer to the new data segment
 /// start.
 ///
 /// This uses the system call BRK as backend.
-pub fn inc_brk(n: usize) -> Result<Unique<u8>, Error> {
+///
+/// This is unsafe for multiple reasons. Most importantly, it can create an inconsistent state,
+/// because it is not atomic. Thus, it can be used to create Undefined Behavior.
+pub unsafe fn inc_brk(n: usize) -> Result<Unique<u8>, Error> {
     let orig_seg_end = try!(segment_end()) as usize;
-    if n == 0 {
-        unsafe {
-            return Ok(Unique::new(orig_seg_end as *mut u8))
-        }
-    }
+    if n == 0 { return Ok(Unique::new(orig_seg_end as *mut u8)) }
 
     let expected_end = try!(orig_seg_end.checked_add(n).ok_or(Error::ArithOverflow));
-    let new_seg_end = try!(unsafe { sys_brk(expected_end) });
+    let new_seg_end = try!(sys_brk(expected_end));
 
     if new_seg_end != expected_end {
         // Reset the break.
-        try!(unsafe { sys_brk(orig_seg_end) });
+        try!(sys_brk(orig_seg_end));
 
         Err(Error::OutOfMemory)
     } else {
-        Ok(unsafe { Unique::new(orig_seg_end as *mut u8) })
+        Ok(Unique::new(orig_seg_end as *mut u8))
     }
 }
 
@@ -108,21 +107,25 @@ mod test {
 
     #[test]
     fn test_oom() {
-        assert_eq!(inc_brk(9999999999999).err(), Some(Error::OutOfMemory));
+        unsafe {
+            assert_eq!(inc_brk(9999999999999).err(), Some(Error::OutOfMemory));
+        }
     }
 
     #[test]
     fn test_read() {
-        let mem = *inc_brk(8).unwrap() as *mut u64;
         unsafe {
+            let mem = *inc_brk(8).unwrap() as *mut u64;
             assert_eq!(*mem, 0);
         }
     }
 
     #[test]
     fn test_overflow() {
-        assert_eq!(inc_brk(!0).err(), Some(Error::ArithOverflow));
-        assert_eq!(inc_brk(!0 - 2000).err(), Some(Error::ArithOverflow));
+        unsafe {
+            assert_eq!(inc_brk(!0).err(), Some(Error::ArithOverflow));
+            assert_eq!(inc_brk(!0 - 2000).err(), Some(Error::ArithOverflow));
+        }
     }
 
     #[test]

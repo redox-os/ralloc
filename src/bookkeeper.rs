@@ -7,7 +7,7 @@ use block::Block;
 use sys;
 
 use core::mem::{align_of, size_of};
-use core::{ops, ptr, slice, cmp, intrinsics};
+use core::{ops, ptr, slice, cmp};
 use core::ptr::Unique;
 
 /// An address representing an "empty" or non-allocated value on the heap.
@@ -88,7 +88,7 @@ impl Bookkeeper {
 /// Calculate the aligner.
 ///
 /// The aligner is what we add to a pointer to align it to a given value.
-fn aligner(ptr: *mut u8, align: usize) -> usize {
+fn aligner(ptr: *const u8, align: usize) -> usize {
     align - ptr as usize % align
 }
 
@@ -183,7 +183,7 @@ impl BlockList {
 
         // We run right-to-left, since new blocks tend to get added to the right.
         for (n, i) in self.iter_mut().enumerate().rev() {
-            let aligner = aligner(*i.ptr, align);
+            let aligner = aligner(*i.ptr as *const _, align);
 
             if i.size >= size + aligner {
                 // To catch dumb logic errors.
@@ -262,11 +262,14 @@ impl BlockList {
         // Calculate the canonical size (extra space is allocated to limit the number of system calls).
         let can_size = canonicalize_brk(size);
         // Get the previous segment end.
+        // TODO Is this thread-safe?
         let seg_end = sys::segment_end().unwrap_or_else(|x| x.handle());
         // Calculate the aligner.
         let aligner = aligner(seg_end, align);
         // Use SYSBRK to allocate extra data segment.
-        let ptr = sys::inc_brk(can_size.checked_add(aligner).unwrap_or_else(|| sys::oom())).unwrap_or_else(|x| x.handle());
+        let ptr = unsafe {
+            sys::inc_brk(can_size.checked_add(aligner).unwrap_or_else(|| sys::oom())).unwrap_or_else(|x| x.handle())
+        };
 
         let alignment_block = Block {
             size: aligner,
@@ -412,6 +415,7 @@ impl BlockList {
     /// This will extend the capacity to a number greater than or equals to `needed`, potentially
     /// reallocating the block list.
     fn reserve(&mut self, needed: usize) {
+        /*
         if needed > self.cap {
             // Set the new capacity.
             self.cap = cmp::max(30, self.cap.saturating_mul(2));
@@ -430,27 +434,39 @@ impl BlockList {
             // Check consistency.
             self.check();
         }
-        /*
+        */
         if needed > self.cap {
-            // Set the new capacity.
-            self.cap = cmp::minkii(self.cap + 100, self.cap.saturating_mul(2));
+            let block = Block {
+                ptr: unsafe { Unique::new(*self.ptr as *mut _) },
+                size: self.cap,
+            };
+            let ind = self.find(&block);
+            // TODO allow BRK-free non-inplace reservations.
 
             // Reallocate the block list.
-            self.ptr = unsafe {
-                let block = Block {
-                    ptr: Unique::new(*self.ptr as *mut _),
-                    size: self.cap,
-                };
 
-                let cap = self.cap;
-                let ind = self.find(&block);
-                Unique::new(*self.realloc_inplace(block, ind, cap) as *mut _)
-            };
+            // We first try inplace.
+            if self.realloc_inplace(ind, needed).is_ok() {
+                self.cap = needed;
+            } else {
+                // Inplace alloc failed, so we have to BRK somee new space.
+
+                let old_ptr = *self.ptr;
+
+                // Make a fresh allocation.
+                self.cap = needed.saturating_add(cmp::min(self.cap, 200 + self.cap / 2));
+                unsafe {
+                    let cap = self.cap;
+                    self.ptr = Unique::new(*self.alloc_fresh(cap, align_of::<Block>()) as *mut _);
+
+                    // Copy the content.
+                    ptr::copy_nonoverlapping(old_ptr as *const _, *self.ptr, self.len);
+                }
+            }
 
             // Check consistency.
             self.check();
         }
-        */
     }
 
     /// Perform a binary search to find the appropriate place where the block can be insert or is
@@ -501,7 +517,13 @@ impl BlockList {
     /// See [`insert`](#method.insert) for details.
     fn free(&mut self, block: Block) {
         let ind = self.find(&block);
+        self.free_ind(ind, block);
+    }
 
+    /// Free a block placed on some index.
+    ///
+    /// See [`free`](#method.free) for more information.
+    fn free_ind(&mut self, ind: usize, block: Block) {
         debug_assert!(*self[ind].ptr != *block.ptr || !self[ind].is_free(), "Double free.");
 
         // Try to merge right.

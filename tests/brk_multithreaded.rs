@@ -9,7 +9,9 @@ fn main() {
 
     for _ in 0..1000 {
         threads.push(thread::spawn(|| {
-            inc_brk(9999).unwrap();
+            unsafe {
+                inc_brk(9999).unwrap();
+            }
         }));
     }
 
