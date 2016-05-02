@@ -1,4 +1,4 @@
-//! The memory bookkeeping module.
+//! Memory bookkeeping primitives.
 //!
 //! Blocks are the main unit for the memory bookkeeping. A block is a simple construct with a
 //! `Unique` pointer and a size. Occupied (non-free) blocks are represented by a zero-sized block.
@@ -138,6 +138,36 @@ impl BlockList {
         }
     }
 
+    /// Initialize the block list.
+    ///
+    /// This will do some basic initial allocation, and a bunch of other things as well. It is
+    /// necessary to avoid meta-circular dependency.
+    // TODO can this be done in a more elegant way?
+    fn init(&mut self) {
+        debug_assert!(self.cap == 0, "Capacity is non-zero on initialization.");
+
+        /// The initial capacity.
+        const INITIAL_CAPACITY: usize = 16;
+
+        let reserve = INITIAL_CAPACITY * size_of::<Block>();
+        let brk = unsafe {
+            sys::inc_brk(reserve + align_of::<Block>()).unwrap_or_else(|x| x.handle())
+        };
+        let aligner = aligner(*brk as *const _, align_of::<Block>());
+
+        self.cap = reserve;
+        self.ptr = unsafe {
+            Unique::new((*brk as usize + aligner) as *mut _)
+        };
+
+        self.push(Block {
+            size: aligner,
+            ptr: brk,
+        });
+
+        self.check();
+    }
+
     /// *[See `Bookkeeper`'s respective method.](./struct.Bookkeeper.html#method.alloc)*
     ///
     /// # Example
@@ -232,11 +262,17 @@ impl BlockList {
     /// This will append a block entry to the end of the block list. Make sure that this entry has
     /// a value higher than any of the elements in the list, to keep it sorted.
     fn push(&mut self, block: Block) {
-        let len = self.len;
-        // This is guaranteed not to overflow, since `len` is bounded by the address space, since
-        // each entry represent at minimum one byte, meaning that `len` is bounded by the address
-        // space.
-        self.reserve(len + 1);
+        // Some assertions.
+        debug_assert!(block.size != 0, "Pushing a zero sized block.");
+        debug_assert!(self.last().map_or(0, |x| *x.ptr as usize) <= *block.ptr as usize, "The previous last block is higher than the new.");
+
+        {
+            let len = self.len;
+            // This is guaranteed not to overflow, since `len` is bounded by the address space, since
+            // each entry represent at minimum one byte, meaning that `len` is bounded by the address
+            // space.
+            self.reserve(len + 1);
+        }
 
         unsafe {
             ptr::write((*self.ptr as usize + size_of::<Block>() * self.len) as *mut _, block);
@@ -276,8 +312,8 @@ impl BlockList {
             ptr: ptr,
         };
         let res = Block {
-            ptr: alignment_block.end(),
             size: size,
+            ptr: alignment_block.end(),
         };
 
         // Add it to the list. This will not change the order, since the pointer is higher than all
@@ -429,6 +465,10 @@ impl BlockList {
             self.check();
         }
         */
+
+        // Initialize if necessary.
+        if *self.ptr == EMPTY_HEAP as *mut _ { self.init() }
+
         if needed > self.cap {
             let block = Block {
                 ptr: unsafe { Unique::new(*self.ptr as *mut _) },
@@ -518,6 +558,7 @@ impl BlockList {
     ///
     /// See [`free`](#method.free) for more information.
     fn free_ind(&mut self, ind: usize, block: Block) {
+        // Make some handy assertions.
         debug_assert!(*self[ind].ptr != *block.ptr || !self[ind].is_free(), "Double free.");
 
         // Try to merge right.
@@ -591,6 +632,10 @@ impl BlockList {
     ///
     /// The insertion is now completed.
     fn insert(&mut self, ind: usize, block: Block) {
+        // Some assertions...
+        debug_assert!(block >= self[ind.saturating_sub(1)], "Inserting at {} will make the list unsorted.", ind);
+        debug_assert!(self.find(&block) == ind, "Block is not inserted at the appropriate index.");
+
         // TODO consider moving right before searching left.
 
         // Find the next gap, where a used block were.
@@ -634,10 +679,12 @@ impl BlockList {
     /// This will check for the following conditions:
     ///
     /// 1. The list is sorted.
-    /// 2. No entries are not overlapping.
+    /// 2. No entries are overlapping.
     /// 3. The length does not exceed the capacity.
     #[cfg(debug_assertions)]
     fn check(&self) {
+        if self.len == 0 { return; }
+
         // Check if sorted.
         let mut prev = *self[0].ptr;
         for (n, i) in self.iter().enumerate().skip(1) {
