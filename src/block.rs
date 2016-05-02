@@ -14,8 +14,12 @@ pub struct Block {
 impl Block {
     /// Get a pointer to the end of this block, not inclusive.
     pub fn end(&self) -> Unique<u8> {
+        // TODO, this might trigger an overflow, which could imply creating a null-pointer.
+        let ptr = (self.size + *self.ptr as usize) as *mut _;
+        debug_assert!(!ptr.is_null(), "Pointer is null.");
+
         unsafe {
-            Unique::new((self.size + *self.ptr as usize) as *mut _)
+            Unique::new(ptr)
         }
     }
 

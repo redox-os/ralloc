@@ -7,8 +7,8 @@ use block::Block;
 use sys;
 
 use core::mem::{align_of, size_of};
-use core::{ops, ptr, slice, cmp};
 use core::ptr::Unique;
+use core::{ops, ptr, slice, cmp, fmt};
 
 /// An address representing an "empty" or non-allocated value on the heap.
 const EMPTY_HEAP: *mut u8 = 0x1 as *mut _;
@@ -251,7 +251,7 @@ impl BlockList {
     /// Find a block's index through binary search.
     ///
     /// If it fails, the value will be where the block could be inserted to keep the list sorted.
-    fn search(&mut self, block: &Block) -> Result<usize, usize> {
+    fn search(&self, block: &Block) -> Result<usize, usize> {
         self.binary_search_by(|x| x.cmp(block))
     }
 
@@ -303,6 +303,8 @@ impl BlockList {
     /// This will try to reallocate a buffer inplace, meaning that the buffers length is merely
     /// extended, and not copied to a new buffer.
     ///
+    /// This _won't_ shrink the block.
+    ///
     /// Returns `Err(())` if the buffer extension couldn't be done, `Err(())` otherwise.
     ///
     /// The following guarantees are made:
@@ -311,56 +313,35 @@ impl BlockList {
     ///    new size.
     /// 2. No changes are made to the allocated buffer itself.
     /// 3. On failure, the state of the allocator is left unmodified.
-    fn realloc_inplace(&mut self, ind: usize, size: usize) -> Result<(), ()> {
-        // Bound check.
-        if ind == self.len { return Err(()) }
-        debug_assert!(ind < self.len, "Index out of bound.");
-
-        if self[ind].size < size {
-            // `ind` + 1 is guaranteed to not overflow, since it is bounded (by the array bound check)
-            // by `self.len`, which is bounded by the address space (it is strictly less than the
-            // address space, since each entry is more than one byte).
-
-            // The addition of the sizes are guaranteed not to overflow, due to only being reach if the
-            // next block is free, effectively asserting that the blocks are disjoint, implying that
-            // their sum is bounded by the address space (see the guarantees).
-            if self[ind + 1].is_free() && self[ind].size + self[ind + 1].size >= size {
-                // Calculate the additional space.
-                //
-                // This is guaranteed to not overflow, since the `if` statement's condition implies
-                // so.
-                let additional = size - self[ind].size;
-
-                // Leave the excessive space.
-                self[ind + 1].ptr = unsafe {
-                    Unique::new((*self[ind + 1].ptr as usize + additional) as *mut _)
-                };
-                self[ind + 1].size -= additional;
-
-                // Check consistency.
-                self.check();
-
-                Ok(())
-            } else {
-                Err(())
-            }
-        } else {
-            // Resize our block.
-            self[ind].size = size;
-
-            // Calculate the excessive space.
-            //
-            // This will not overflow due to the negation of the condition in the if statement.
-            let rest = self[ind].size - size;
-            // Free the excessive part.
-            let exc_ptr = self[ind].end();
-            self.free(Block {
-                size: rest,
-                ptr: exc_ptr,
+    fn realloc_inplace(&mut self, ind: usize, block: &Block, new_size: usize) -> Result<(), ()> {
+        /*
+            // Calculate the end of the new reallocated block.
+            let end_ptr = *block.ptr as usize + new_size as *mut u8;
+            // Calculate the end index of the new extended block.
+            let ind_end = self[ind..].find(Block {
+                size: 0, // the size is irrelevant.
+                ptr: unsafe { Unique::new(end_ptr) },
             });
 
-            Ok(())
-        }
+            if self[ind_end].size < new_size {
+                // Unfortunately, there is not enough space available to do an inplace allocation.
+                Err(())
+            } else {
+                // Shift all the following blocks, such that we keep the list sorted.
+                for i in &mut self[ind..ind_end] {
+                    debug_assert!(!i.is_free(), "Shifting a non-free block.")
+                    *i = unsafe { Unique::new(end_ptr) };
+                }
+                // For debugging reasons, we assert that the blocks after are higher.
+                debug_assert!(self[ind_end] >= self[ind], "Shifting too few blocks.")
+            }
+
+            // Check the consistency.
+            self.check();
+        */
+
+        // TODO
+        Err(())
     }
 
     /// *[See `Bookkeeper`'s respective method.](./struct.Bookkeeper.html#method.realloc)*
@@ -386,9 +367,22 @@ impl BlockList {
     /// deallocate the old one, after which we use memmove to copy the data over to the newly
     /// allocated list.
     fn realloc(&mut self, block: Block, new_size: usize, align: usize) -> Unique<u8> {
-        let ind = self.find(&block);
+        if new_size <= block.size {
+            // Shrink the block.
 
-        if self.realloc_inplace(ind, new_size).is_ok() {
+            let ind = self.find(&block);
+            self.free_ind(ind, Block {
+                size: new_size - block.size,
+                ptr: unsafe { Unique::new((*block.ptr as usize + new_size) as *mut u8) },
+            });
+
+            debug_assert!(self[self.find(&block)].size == new_size, "Block wasn't shrinked properly.");
+            block.ptr
+        } else if {
+            // Try to do an inplace reallocation.
+            let ind = self.find(&block);
+            self.realloc_inplace(ind, &block, new_size).is_ok()
+        } {
             block.ptr
         } else {
             // Reallocation cannot be done inplace.
@@ -415,7 +409,7 @@ impl BlockList {
     /// This will extend the capacity to a number greater than or equals to `needed`, potentially
     /// reallocating the block list.
     fn reserve(&mut self, needed: usize) {
-        /*
+        /* TODO remove this.
         if needed > self.cap {
             // Set the new capacity.
             self.cap = cmp::max(30, self.cap.saturating_mul(2));
@@ -446,10 +440,10 @@ impl BlockList {
             // Reallocate the block list.
 
             // We first try inplace.
-            if self.realloc_inplace(ind, needed).is_ok() {
+            if self.realloc_inplace(ind, &block, needed).is_ok() {
                 self.cap = needed;
             } else {
-                // Inplace alloc failed, so we have to BRK somee new space.
+                // Inplace alloc failed, so we have to BRK some new space.
 
                 let old_ptr = *self.ptr;
 
@@ -471,7 +465,7 @@ impl BlockList {
 
     /// Perform a binary search to find the appropriate place where the block can be insert or is
     /// located.
-    fn find(&mut self, block: &Block) -> usize {
+    fn find(&self, block: &Block) -> usize {
         match self.search(block) {
             Ok(x) => x,
             Err(x) => x,
@@ -620,6 +614,10 @@ impl BlockList {
             ptr::copy(self[ind..].as_ptr(), self[ind + 1..].as_mut_ptr(), self.len - n);
         }
 
+        // Check that the inserted block doesn't overlap the following ones.
+        debug_assert!(*block.end() <= *self[ind + 1].ptr, "The inserted block overlaps with the \
+                      following blocks.");
+
         // Place the block left to the moved line.
         self[ind] = block;
 
@@ -643,7 +641,7 @@ impl BlockList {
         // Check if sorted.
         let mut prev = *self[0].ptr;
         for (n, i) in self.iter().enumerate().skip(1) {
-            assert!(*i.ptr > prev, "The block list is not sorted at index, {}.", n);
+            assert!(*i.ptr >= prev, "The block list is not sorted at index, {}: 0x{:x} ≤ 0x{:x}.", n, *i.ptr as usize, prev as usize);
             prev = *i.ptr;
         }
         // Check if overlapping.
@@ -655,6 +653,18 @@ impl BlockList {
 
         // Check that the length is lower than or equals to the capacity.
         assert!(self.len <= self.cap, "The capacity does not cover the length.");
+    }
+
+    /// Dump the contents into a format writer.
+    #[cfg(debug_assertions)]
+    #[allow(dead_code)]
+    fn dump<W: fmt::Write>(&self, mut fmt: W) {
+        writeln!(fmt, "len: {}", self.len).unwrap();
+        writeln!(fmt, "cap: {}", self.cap).unwrap();
+        writeln!(fmt, "content:").unwrap();
+        for i in &**self {
+            writeln!(fmt, "  - {:x} .. {}", *i.ptr as usize, i.size).unwrap();
+        }
     }
 }
 
