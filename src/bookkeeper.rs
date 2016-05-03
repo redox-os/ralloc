@@ -350,34 +350,27 @@ impl BlockList {
     /// 2. No changes are made to the allocated buffer itself.
     /// 3. On failure, the state of the allocator is left unmodified.
     fn realloc_inplace(&mut self, ind: usize, block: &Block, new_size: usize) -> Result<(), ()> {
-        /*
-            // Calculate the end of the new reallocated block.
-            let end_ptr = *block.ptr as usize + new_size as *mut u8;
-            // Calculate the end index of the new extended block.
-            let ind_end = self[ind..].find(Block {
-                size: 0, // the size is irrelevant.
-                ptr: unsafe { Unique::new(end_ptr) },
-            });
+        // Make sure that invariants aren't broken.
+        debug_assert!(new_size > block.size, "`realloc_inplace` cannot be used for shrinking!");
 
-            if self[ind_end].size < new_size {
-                // Unfortunately, there is not enough space available to do an inplace allocation.
-                Err(())
-            } else {
-                // Shift all the following blocks, such that we keep the list sorted.
-                for i in &mut self[ind..ind_end] {
-                    debug_assert!(!i.is_free(), "Shifting a non-free block.")
-                    *i = unsafe { Unique::new(end_ptr) };
-                }
-                // For debugging reasons, we assert that the blocks after are higher.
-                debug_assert!(self[ind_end] >= self[ind], "Shifting too few blocks.")
-            }
+        // Note that we are sure that no segments in the array are adjacent (unless they have size
+        // 0). This way we know that we will, at maximum, need one and only one block for extending
+        // the current block.
+        if block.left_to(&self[ind + 1]) && self[ind + 1].size + block.size >= new_size {
+            // There is space for inplace reallocation.
 
-            // Check the consistency.
+            // Set the following block.
+            self[ind + 1].size -= new_size - block.size;
+            // We now move the block to the new appropriate place.
+            self[ind + 1].ptr = self[ind + 1].end();
+
+            // Run a consistency check.
             self.check();
-        */
 
-        // TODO
-        Err(())
+            Ok(())
+        } else {
+            Err(())
+        }
     }
 
     /// *[See `Bookkeeper`'s respective method.](./struct.Bookkeeper.html#method.realloc)*
@@ -694,7 +687,7 @@ impl BlockList {
         // Check if overlapping.
         let mut prev = *self[0].ptr;
         for (n, i) in self.iter().enumerate().skip(1) {
-            assert!(!i.is_free() || *i.ptr > prev, "Two blocks are overlapping/adjacent at index, {}.", n);
+            assert!(*i.ptr > prev || i.is_free() && *i.ptr == prev, "Two blocks are overlapping/adjacent at index, {}.", n);
             prev = *i.end();
         }
 
