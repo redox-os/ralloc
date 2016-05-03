@@ -36,10 +36,10 @@ impl Error {
 /// Cooperatively gives up a timeslice to the OS scheduler.
 pub fn yield_now() {
     unsafe {
-        #[cfg(unix)]
+        #[cfg(not(target_os = "redox"))]
         syscall!(SCHED_YIELD);
 
-        #[cfg(redox)]
+        #[cfg(target_os = "redox")]
         ::system::syscall::unix::sys_yield();
     }
 }
