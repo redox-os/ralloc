@@ -39,7 +39,7 @@ pub fn yield_now() {
         #[cfg(target_os = "redox")]
         syscall!(SCHED_YIELD);
 
-        #[cfg(not(target_os = "redox")]
+        #[cfg(not(target_os = "redox"))]
         ::system::syscall::unix::sys_yield();
     }
 }
