@@ -4,7 +4,8 @@ fn alloc_box() -> Box<u32> {
     Box::new(0xDEADBEAF)
 }
 
-fn main() {
+#[test]
+fn test() {
     let mut a = Box::new(1);
     let mut b = Box::new(2);
     let mut c = Box::new(3);

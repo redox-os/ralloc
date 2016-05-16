@@ -1,6 +1,7 @@
 extern crate ralloc;
 
-fn main() {
+#[test]
+fn test() {
     let mut vec = Vec::new();
 
     for i in 0..0xFFFF {
@@ -12,8 +13,8 @@ fn main() {
     assert_eq!(vec[0xDEAD], 0xDEAD);
     assert_eq!(vec[0xBEAF], 0xBEAF);
     assert_eq!(vec[0xABCD], 0xABCD);
-    assert_eq!(vec[0xFFFAB], 0xFFFAB);
-    assert_eq!(vec[0xAAAAAAA], 0xAAAAAAA);
+    assert_eq!(vec[0xFFAB], 0xFFAB);
+    assert_eq!(vec[0xAAAA], 0xAAAA);
 
     for i in 0xFFFF..0 {
         assert_eq!(vec.pop(), Some(i));

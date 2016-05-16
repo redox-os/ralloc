@@ -17,7 +17,8 @@ fn make_thread() {
     });
 }
 
-fn main() {
+#[test]
+fn test() {
     for _ in 0..5 {
         make_thread();
     }

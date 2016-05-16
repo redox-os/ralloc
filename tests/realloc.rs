@@ -1,6 +1,7 @@
 extern crate ralloc;
 
-fn main() {
+#[test]
+fn test() {
     let mut vec = Vec::new();
     vec.reserve(1);
     vec.reserve(2);

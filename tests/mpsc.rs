@@ -3,7 +3,8 @@ extern crate ralloc;
 use std::thread;
 use std::sync::mpsc;
 
-fn main() {
+#[test]
+fn test() {
     {
         let (tx, rx) = mpsc::channel::<Box<u64>>();
         thread::spawn(move || {

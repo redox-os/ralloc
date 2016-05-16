@@ -36,9 +36,9 @@ impl Block {
         self.size = 0;
     }
 
-    /// Is this block is left to `to`?
-    pub fn left_to(&self, to: &Block) -> bool {
-        self.size + *self.ptr as usize == *to.ptr as usize
+    /// Is this block placed left to the given other block?
+    pub fn left_to(&self, to: *mut u8) -> bool {
+        self.size + *self.ptr as usize == to as usize
     }
 }
 
@@ -101,12 +101,12 @@ mod test {
             ptr: unsafe { Unique::new(40 as *mut _) },
         };
 
-        assert!(a.left_to(&b));
-        assert!(b.left_to(&c));
-        assert!(!c.left_to(&a));
-        assert!(!a.left_to(&c));
-        assert!(!b.left_to(&b));
-        assert!(!b.left_to(&a));
+        assert!(a.left_to(*b.ptr));
+        assert!(b.left_to(*c.ptr));
+        assert!(!c.left_to(*a.ptr));
+        assert!(!a.left_to(*c.ptr));
+        assert!(!b.left_to(*b.ptr));
+        assert!(!b.left_to(*a.ptr));
     }
 
     #[test]

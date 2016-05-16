@@ -2,7 +2,8 @@ extern crate ralloc;
 
 use std::collections::BTreeMap;
 
-fn main() {
+#[test]
+fn test() {
     let mut map = BTreeMap::new();
 
     map.insert("Nicolas", "Cage");

@@ -6,11 +6,7 @@
 #![cfg_attr(feature = "allocator", allocator)]
 #![no_std]
 
-#![feature(allocator)]
-#![feature(const_fn)]
-#![feature(core_intrinsics)]
-#![feature(stmt_expr_attributes)]
-#![feature(unique)]
+#![feature(allocator, const_fn, core_intrinsics, stmt_expr_attributes, unique, iter_arith)]
 
 #![warn(missing_docs)]
 
