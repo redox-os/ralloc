@@ -20,9 +20,9 @@ use core::mem::{align_of, size_of};
 #[inline]
 fn canonicalize_brk(min: usize) -> usize {
     const BRK_MULTIPLIER: usize = 1;
-    const BRK_MIN: usize = 200;
+    const BRK_MIN: usize = 65536;
     /// The maximal amount of _extra_ elements.
-    const BRK_MAX_EXTRA: usize = 10000;
+    const BRK_MAX_EXTRA: usize = 4 * 65536;
 
     let res = cmp::max(BRK_MIN, min.saturating_add(cmp::min(BRK_MULTIPLIER * min, BRK_MAX_EXTRA)));
 
@@ -52,7 +52,11 @@ pub struct Bookkeeper {
     /// Certain guarantees are made:
     ///
     /// 1. The list is always sorted with respect to the block's pointers.
-    /// 2. No two blocks are adjacent.
+    /// 2. No two consecutive or empty block delimited blocks are adjacent, except if the right
+    ///    block is empty.
+    /// 3. There are no trailing empty blocks.
+    ///
+    /// These are invariants assuming that only the public methods are used.
     pool: Vec<Block>,
 }
 
@@ -392,6 +396,8 @@ impl Bookkeeper {
                 return;
             }
         }
+        // Merging failed. Note that trailing empty blocks are not allowed, hence the last block is
+        // the only non-empty candidate which may be adjacent to `block`.
 
         // It failed, so we will need to add a new block to the end.
         let len = self.pool.len();
@@ -457,10 +463,17 @@ impl Bookkeeper {
 
     /// Perform a binary search to find the appropriate place where the block can be insert or is
     /// located.
+    ///
+    /// It is guaranteed that no block left to the returned value, satisfy the above condition.
     fn find(&self, block: &Block) -> usize {
-        match self.pool.binary_search(block) {
+        // TODO optimize this function.
+
+        let ind = match self.pool.binary_search(block) {
             Ok(x) | Err(x) => x,
-        }
+        };
+
+        // Move left.
+        ind - self.pool.iter().skip(ind).rev().take_while(|x| x.is_empty()).count()
     }
 
     /// Insert a block entry at some index.
@@ -561,7 +574,7 @@ impl Bookkeeper {
                 // Check if sorted.
                 assert!(i >= prev, "The block pool is not sorted at index, {} ({:?} < {:?})", n, i, prev);
                 // Make sure no blocks are adjacent.
-                assert!(!prev.left_to(i), "Adjacent blocks at index, {} ({:?} and {:?})", n, i, prev);
+                assert!(!prev.left_to(i) || i.is_empty(), "Adjacent blocks at index, {} ({:?} and {:?})", n, i, prev);
 
                 // Set the variable tracking the previous block.
                 prev = i;
