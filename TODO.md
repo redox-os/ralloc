@@ -1,0 +1,3 @@
+- [ ] Thread local allocator.
+- [ ] Lock reuse
+- [ ] Checkpoints

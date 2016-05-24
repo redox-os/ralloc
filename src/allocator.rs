@@ -1,105 +1,56 @@
 //! The global allocator.
 //!
-//! This contains primitives for the cross-thread allocator. Furthermore, it provides symbols for
-//! allocation, deallocation, and reallocation for Rust.
-
-use core::intrinsics;
-use core::sync::atomic;
-
+//! This contains primitives for the cross-thread allocator.
+use block::Block;
 use bookkeeper::Bookkeeper;
-use sys;
+use ptr::Pointer;
+use sync;
 
-/// The bookkeeper lock.
-///
-/// This atomic boolean is false whenever the lock is free.
-static mut BOOKKEEPER_LOCK: atomic::AtomicBool = atomic::AtomicBool::new(false);
 /// The bookkeeper.
 ///
 /// This is the associated bookkeeper of this allocator.
-static mut BOOKKEEPER: Option<Bookkeeper> = None;
+static BOOKKEEPER: sync::Mutex<Bookkeeper> = sync::Mutex::new(Bookkeeper::new());
 
-/// Unlock the associated mutex.
+/// Allocate a block of memory.
+pub fn alloc(size: usize, align: usize) -> *mut u8 {
+    *BOOKKEEPER.lock().alloc(size, align).into_ptr()
+}
+
+/// Free a buffer.
 ///
-/// This is unsafe, since it will make future use of the acquired bookkeeper reference invalid,
-/// until it is reacquired through [the `get_bookkeeper` method](./fn.get_bookkeeper.html).
-unsafe fn unlock_bookkeeper() {
-    BOOKKEEPER_LOCK.store(false, atomic::Ordering::SeqCst);
-}
-
-/// Lock and possibly initialize the bookkeeper.
-///
-/// Note that the mutex should be unlocked manually, through the [`unlock_bookkeeper`
-/// method](./fn.unlock_bookkeeper.html).
-// TODO use condvar.
-fn get_bookkeeper() -> &'static mut Bookkeeper {
-    unsafe {
-        // Lock the mutex.
-        while BOOKKEEPER_LOCK.compare_and_swap(false, true, atomic::Ordering::SeqCst) {
-            sys::yield_now();
-        }
-
-        if let Some(ref mut x) = BOOKKEEPER {
-            x
-        } else {
-            BOOKKEEPER = Some(Bookkeeper::new());
-
-            BOOKKEEPER.as_mut().unwrap_or_else(|| intrinsics::unreachable())
-        }
-    }
-}
-
-/// Allocate memory.
-#[no_mangle]
-#[cfg(feature = "allocator")]
-pub extern fn __rust_allocate(size: usize, align: usize) -> *mut u8 {
-    let res = *get_bookkeeper().alloc(size, align);
-    unsafe { unlock_bookkeeper() }
-
-    res
-}
-
-/// Deallocate memory.
-#[no_mangle]
-#[cfg(feature = "allocator")]
-pub extern fn __rust_deallocate(ptr: *mut u8, size: usize, _align: usize) {
-    use block::Block;
-    use core::ptr::Unique;
-
-    let res = get_bookkeeper().free(Block {
-        size: size,
-        ptr: unsafe { Unique::new(ptr) },
-    });
-    unsafe { unlock_bookkeeper() }
-
-    res
+/// Note that this do not have to be a buffer allocated through ralloc. The only requirement is
+/// that it is not used after the free.
+pub unsafe fn free(ptr: *mut u8, size: usize) {
+    // Lock the bookkeeper, and do a `free`.
+    BOOKKEEPER.lock().free(Block::from_raw_parts(Pointer::new(ptr), size));
 }
 
 /// Reallocate memory.
-#[no_mangle]
-#[cfg(feature = "allocator")]
-pub extern fn __rust_reallocate(ptr: *mut u8, old_size: usize, size: usize, align: usize) -> *mut u8 {
-    use block::Block;
-    use core::ptr::Unique;
-
-    let res = *get_bookkeeper().realloc(Block {
-        size: old_size,
-        ptr: unsafe { Unique::new(ptr) },
-    }, size, align);
-    unsafe { unlock_bookkeeper() }
-
-    res
+///
+/// Reallocate the buffer starting at `ptr` with size `old_size`, to a buffer starting at the
+/// returned pointer with size `size`.
+pub unsafe fn realloc(ptr: *mut u8, old_size: usize, size: usize, align: usize) -> *mut u8 {
+    // Lock the bookkeeper, and do a `realloc`.
+    *BOOKKEEPER.lock().realloc(
+        Block::from_raw_parts(Pointer::new(ptr), old_size),
+        size,
+        align
+    ).into_ptr()
 }
 
-/// Return the maximal amount of inplace reallocation that can be done.
-#[no_mangle]
-#[cfg(feature = "allocator")]
-pub extern fn __rust_reallocate_inplace(_ptr: *mut u8, old_size: usize, _size: usize, _align: usize) -> usize {
-    old_size // TODO
-}
-
-/// Get the usable size of the some number of bytes of allocated memory.
-#[no_mangle]
-#[cfg(feature = "allocator")]
-pub extern fn __rust_usable_size(size: usize, _align: usize) -> usize {
-    size
+/// Try to reallocate the buffer _inplace_.
+///
+/// In case of success, return the new buffer's size. On failure, return the old size.
+///
+/// This can be used to shrink (truncate) a buffer as well.
+pub unsafe fn realloc_inplace(ptr: *mut u8, old_size: usize, size: usize) -> Result<(), ()> {
+    // Lock the bookkeeper, and do a `realloc_inplace`.
+    if BOOKKEEPER.lock().realloc_inplace(
+        Block::from_raw_parts(Pointer::new(ptr), old_size),
+        size
+    ).is_ok() {
+        Ok(())
+    } else {
+        Err(())
+    }
 }

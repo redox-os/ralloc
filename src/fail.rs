@@ -8,7 +8,7 @@ static OOM_HANDLER: AtomicPtr<()> = AtomicPtr::new(default_oom_handler as *mut (
 
 /// The default OOM handler.
 ///
-/// This will simply abort the process with exit code, 1.
+/// This will simply abort the process.
 fn default_oom_handler() -> ! {
     unsafe {
         intrinsics::abort();

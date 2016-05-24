@@ -1,34 +1,23 @@
 //! System primitives.
 
-use core::ptr::Unique;
-
+use ptr::Pointer;
 use fail;
-
-/// Out of memory.
-///
-/// In release mode, this will simply abort the process (standard behavior). In debug mode, it will
-/// panic, causing debugging to be easier.
-pub fn oom() -> ! {
-    fail::oom();
-}
 
 /// A system call error.
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub enum Error {
     /// Sir, we're running outta memory!
     OutOfMemory,
-    /// Arithmetic overflow.
-    ArithOverflow,
-    /// An unknown error occurred.
-    Unknown,
+    /// An OS error occurred.
+    Os,
 }
 
 impl Error {
     /// Handle this error with the appropriate method.
     pub fn handle(self) -> ! {
         match self {
-            Error::OutOfMemory | Error::ArithOverflow => oom(),
-            Error::Unknown => panic!("Unknown OS error.")
+            Error::OutOfMemory => fail::oom(),
+            Error::Os => panic!("Unknown OS error.")
         }
     }
 }
@@ -60,11 +49,11 @@ pub fn segment_end() -> Result<*const u8, Error> {
 ///
 /// This is unsafe for multiple reasons. Most importantly, it can create an inconsistent state,
 /// because it is not atomic. Thus, it can be used to create Undefined Behavior.
-pub unsafe fn inc_brk(n: usize) -> Result<Unique<u8>, Error> {
+pub unsafe fn inc_brk(n: usize) -> Result<Pointer<u8>, Error> {
     let orig_seg_end = try!(segment_end()) as usize;
-    if n == 0 { return Ok(Unique::new(orig_seg_end as *mut u8)) }
+    if n == 0 { return Ok(Pointer::new(orig_seg_end as *mut u8)) }
 
-    let expected_end = try!(orig_seg_end.checked_add(n).ok_or(Error::ArithOverflow));
+    let expected_end = try!(orig_seg_end.checked_add(n).ok_or(Error::OutOfMemory));
     let new_seg_end = try!(sys_brk(expected_end));
 
     if new_seg_end != expected_end {
@@ -73,7 +62,7 @@ pub unsafe fn inc_brk(n: usize) -> Result<Unique<u8>, Error> {
 
         Err(Error::OutOfMemory)
     } else {
-        Ok(Unique::new(orig_seg_end as *mut u8))
+        Ok(Pointer::new(orig_seg_end as *mut u8))
     }
 }
 
@@ -85,7 +74,7 @@ unsafe fn sys_brk(n: usize) -> Result<usize, Error> {
     if let Ok(ret) = syscall::sys_brk(n) {
         Ok(ret)
     } else {
-        Err(Error::Unknown)
+        Err(Error::Os)
     }
 }
 
@@ -95,7 +84,7 @@ unsafe fn sys_brk(n: usize) -> Result<usize, Error> {
     let ret = syscall!(BRK, n);
 
     if ret == !0 {
-        Err(Error::Unknown)
+        Err(Error::Os)
     } else {
         Ok(ret)
     }
@@ -113,25 +102,10 @@ mod test {
     }
 
     #[test]
-    fn test_read() {
-        unsafe {
-            let mem = *inc_brk(8).unwrap() as *mut u64;
-            assert_eq!(*mem, 0);
-        }
-    }
-
-    #[test]
     fn test_overflow() {
         unsafe {
-            assert_eq!(inc_brk(!0).err(), Some(Error::ArithOverflow));
-            assert_eq!(inc_brk(!0 - 2000).err(), Some(Error::ArithOverflow));
+            assert_eq!(inc_brk(!0).err(), Some(Error::OutOfMemory));
+            assert_eq!(inc_brk(!0 - 2000).err(), Some(Error::OutOfMemory));
         }
-    }
-
-    #[test]
-    fn test_segment_end() {
-        assert_eq!(segment_end().unwrap(), segment_end().unwrap());
-        assert_eq!(segment_end().unwrap(), segment_end().unwrap());
-        assert_eq!(segment_end().unwrap(), segment_end().unwrap());
     }
 }
