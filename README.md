@@ -2,6 +2,23 @@
 
 Redox's fast & memory efficient userspace allocator.
 
+## Using ralloc
+
+Add ralloc to `Cargo.toml`:
+
+```toml
+[dependencies.ralloc]
+git = "https://github.com/redox-os/ralloc.git"
+```
+
+then import it in your main file:
+
+```rust
+extern crate ralloc;
+```
+
+`ralloc` is now ready to roll!
+
 ## Features
 
 ### Custom out-of-memory handlers
