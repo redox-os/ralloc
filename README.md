@@ -2,6 +2,14 @@
 
 Redox's fast & memory efficient userspace allocator.
 
+## A note on its state.
+
+It fully works, although it is relatively slow, since it haven't been optimized
+yet. There is currently no known bugs, but it haven't been carefully reviewed
+yet, so avoid using it in security critical programs.
+
+I consider the state of the code quality very good.
+
 ## Using ralloc
 
 Add ralloc to `Cargo.toml`:
@@ -18,6 +26,8 @@ extern crate ralloc;
 ```
 
 `ralloc` is now ready to roll!
+
+Note that ralloc cannot coexist with another allocator, unless they're deliberately compatible.
 
 ## Features
 

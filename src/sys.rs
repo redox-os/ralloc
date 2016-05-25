@@ -36,6 +36,7 @@ pub fn yield_now() {
 /// Retrieve the end of the current data segment.
 ///
 /// This will not change the state of the process in any way, and is thus safe.
+    #[inline]
 pub fn segment_end() -> Result<*const u8, Error> {
     unsafe {
         sys_brk(0)
@@ -49,6 +50,7 @@ pub fn segment_end() -> Result<*const u8, Error> {
 ///
 /// This is unsafe for multiple reasons. Most importantly, it can create an inconsistent state,
 /// because it is not atomic. Thus, it can be used to create Undefined Behavior.
+#[inline]
 pub unsafe fn inc_brk(n: usize) -> Result<Pointer<u8>, Error> {
     let orig_seg_end = try!(segment_end()) as usize;
     if n == 0 { return Ok(Pointer::new(orig_seg_end as *mut u8)) }
@@ -67,6 +69,7 @@ pub unsafe fn inc_brk(n: usize) -> Result<Pointer<u8>, Error> {
 }
 
 /// Redox syscall, BRK.
+#[inline]
 #[cfg(target_os = "redox")]
 unsafe fn sys_brk(n: usize) -> Result<usize, Error> {
     use system::syscall;
@@ -79,6 +82,7 @@ unsafe fn sys_brk(n: usize) -> Result<usize, Error> {
 }
 
 /// Unix syscall, BRK.
+#[inline]
 #[cfg(not(target_os = "redox"))]
 unsafe fn sys_brk(n: usize) -> Result<usize, Error> {
     let ret = syscall!(BRK, n);

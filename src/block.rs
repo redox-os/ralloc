@@ -26,6 +26,7 @@ pub struct Block {
 
 impl Block {
     /// Create an empty block starting at `ptr`.
+    #[inline]
     pub fn empty(ptr: &Pointer<u8>) -> Block {
         Block {
             size: 0,
@@ -35,6 +36,7 @@ impl Block {
     }
 
     /// Construct a block from its raw parts (pointer and size).
+    #[inline]
     pub unsafe fn from_raw_parts(ptr: Pointer<u8>, size: usize) ->  Block {
         Block {
             size: size,
@@ -50,6 +52,7 @@ impl Block {
     /// BRK allocate a block.
     ///
     /// This is unsafe due to the allocator assuming that only it makes use of BRK.
+    #[inline]
    pub unsafe fn brk(size: usize) -> Block {
         Block {
             size: size,
@@ -62,6 +65,7 @@ impl Block {
     /// This will simply extend the block, adding the size of the block, and then set the size to
     /// zero. The return value is `Ok(())` on success, and `Err(())` on failure (e.g., the blocks
     /// are not adjacent).
+    #[inline]
     pub fn merge_right(&mut self, block: &mut Block) -> Result<(), ()> {
         if self.left_to(&block) {
             // Since the end of `block` is bounded by the address space, adding them cannot
@@ -73,16 +77,19 @@ impl Block {
     }
 
     /// Is this block empty/free?
+    #[inline]
     pub fn is_empty(&self) -> bool {
         self.size != 0
     }
 
     /// Is this block aligned to `align`?
+    #[inline]
     pub fn aligned_to(&self, align: usize) -> bool {
         *self.ptr as usize % align == 0
     }
 
     /// Get the inner pointer.
+    #[inline]
     pub fn into_ptr(self) -> Pointer<u8> {
         self.ptr
     }
@@ -92,6 +99,7 @@ impl Block {
     /// # Panics
     ///
     /// This will panic if the target block is smaller than the source.
+    #[inline]
     pub fn copy_to(&self, block: &mut Block) {
         // Bound check.
         assert!(self.size <= block.size, "Block too small.");
@@ -104,12 +112,14 @@ impl Block {
     /// "Pop" this block.
     ///
     /// This marks it as free, and returns the old value.
+    #[inline]
     pub fn pop(&mut self) -> Block {
         let empty = Block::empty(&self.ptr);
         mem::replace(self, empty)
     }
 
     /// Is this block placed left to the given other block?
+    #[inline]
     pub fn left_to(&self, to: &Block) -> bool {
         // This won't overflow due to the end being bounded by the address space.
         self.size + *self.ptr as usize == *to.ptr as usize
@@ -120,6 +130,7 @@ impl Block {
     /// # Panics
     ///
     /// Panics if `pos` is out of bound.
+    #[inline]
     pub fn split(self, pos: usize) -> (Block, Block) {
         assert!(pos <= self.size, "Split {} out of bound (size is {})!", pos, self.size);
 
@@ -138,6 +149,7 @@ impl Block {
     /// Split this block, such that the second block is aligned to `align`.
     ///
     /// Returns an `None` holding the intact block if `align` is out of bounds.
+    #[inline]
     pub fn align(&mut self, align: usize) -> Option<(Block, Block)> {
         let aligner = align - *self.ptr as usize % align;
 
@@ -161,6 +173,7 @@ impl Block {
 }
 
 impl PartialOrd for Block {
+    #[inline]
     fn partial_cmp(&self, other: &Block) -> Option<cmp::Ordering> {
         self.ptr.partial_cmp(&other.ptr)
     }
@@ -168,12 +181,14 @@ impl PartialOrd for Block {
 
 /// Compare the blocks address.
 impl Ord for Block {
+    #[inline]
     fn cmp(&self, other: &Block) -> cmp::Ordering {
         self.ptr.cmp(&other.ptr)
     }
 }
 
 impl cmp::PartialEq for Block {
+    #[inline]
     fn eq(&self, other: &Block) -> bool {
         self.size == other.size && *self.ptr == *other.ptr
     }

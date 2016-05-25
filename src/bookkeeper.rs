@@ -19,7 +19,7 @@ use core::mem::{align_of, size_of};
 /// The return value is always greater than or equals to the argument.
 #[inline]
 fn canonicalize_brk(min: usize) -> usize {
-    const BRK_MULTIPLIER: usize = 1;
+    const BRK_MULTIPLIER: usize = 2;
     const BRK_MIN: usize = 65536;
     /// The maximal amount of _extra_ elements.
     const BRK_MAX_EXTRA: usize = 4 * 65536;
@@ -185,6 +185,7 @@ impl Bookkeeper {
     ///
     /// And we're done. If it cannot be done, we insert the block, while keeping the list sorted.
     /// See [`insert`](#method.insert) for details.
+    #[inline]
     pub fn free(&mut self, block: Block) {
         let ind = self.find(&block);
         self.free_ind(ind, block);
@@ -262,6 +263,7 @@ impl Bookkeeper {
     /// This shouldn't be used when the index of insertion is known, since this performs an binary
     /// search to find the blocks index. When you know the index use
     /// [`realloc_inplace_ind`](#method.realloc_inplace_ind.html).
+    #[inline]
     pub fn realloc_inplace(&mut self, block: Block, new_size: usize) -> Result<Block, Block> {
         let ind = self.find(&block);
         let res = self.realloc_inplace_ind(ind, block, new_size);
@@ -465,6 +467,7 @@ impl Bookkeeper {
     /// located.
     ///
     /// It is guaranteed that no block left to the returned value, satisfy the above condition.
+    #[inline]
     fn find(&self, block: &Block) -> usize {
         // TODO optimize this function.
 
@@ -532,6 +535,7 @@ impl Bookkeeper {
     /// ```
     ///
     /// The insertion is now completed.
+    #[inline]
     fn insert(&mut self, ind: usize, block: Block) {
         // Some assertions...
         debug_assert!(block >= self.pool[ind + 1], "Inserting at {} will make the list unsorted.", ind);

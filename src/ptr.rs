@@ -24,6 +24,7 @@ impl<T> Pointer<T> {
     ///
     /// This function is unsafe since a null pointer can cause UB, due to `Pointer` being
     /// non-nullable.
+    #[inline]
     pub unsafe fn new(ptr: *mut T) -> Pointer<T> {
         // For the sake of nice debugging, make some assertions.
         debug_assert!(!ptr.is_null(), "Null pointer!");
@@ -38,6 +39,7 @@ impl<T> Pointer<T> {
     ///
     /// For technical reasons, this is not implemented through the `Clone` trait, although it acts
     /// similarly.
+    #[inline]
     pub fn duplicate(&self) -> Pointer<T> {
         Pointer {
             ptr: self.ptr,
@@ -48,6 +50,7 @@ impl<T> Pointer<T> {
     /// Cast this pointer into a pointer to another type.
     ///
     /// This will simply transmute the pointer, leaving the actual data unmodified.
+    #[inline]
     pub fn cast<U>(self) -> Pointer<U> {
         Pointer {
             ptr: unsafe { NonZero::new(*self as *mut U) },
@@ -58,6 +61,7 @@ impl<T> Pointer<T> {
     /// Create an "empty" `Pointer`.
     ///
     /// This acts as a null pointer, although it is represented by 0x1 instead of 0x0.
+    #[inline]
     pub const fn empty() -> Pointer<T> {
         Pointer {
             ptr: unsafe { NonZero::new(0x1 as *mut T) },
@@ -72,6 +76,7 @@ impl<T> Pointer<T> {
     /// # Safety
     ///
     /// This is unsafe, due to OOB offsets being undefined behavior.
+    #[inline]
     pub unsafe fn offset(self, diff: isize) -> Pointer<T> {
         Pointer::new(self.ptr.offset(diff))
     }

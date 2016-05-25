@@ -12,6 +12,7 @@ use sync;
 static BOOKKEEPER: sync::Mutex<Bookkeeper> = sync::Mutex::new(Bookkeeper::new());
 
 /// Allocate a block of memory.
+#[inline]
 pub fn alloc(size: usize, align: usize) -> *mut u8 {
     *BOOKKEEPER.lock().alloc(size, align).into_ptr()
 }
@@ -20,6 +21,7 @@ pub fn alloc(size: usize, align: usize) -> *mut u8 {
 ///
 /// Note that this do not have to be a buffer allocated through ralloc. The only requirement is
 /// that it is not used after the free.
+#[inline]
 pub unsafe fn free(ptr: *mut u8, size: usize) {
     // Lock the bookkeeper, and do a `free`.
     BOOKKEEPER.lock().free(Block::from_raw_parts(Pointer::new(ptr), size));
@@ -29,6 +31,7 @@ pub unsafe fn free(ptr: *mut u8, size: usize) {
 ///
 /// Reallocate the buffer starting at `ptr` with size `old_size`, to a buffer starting at the
 /// returned pointer with size `size`.
+#[inline]
 pub unsafe fn realloc(ptr: *mut u8, old_size: usize, size: usize, align: usize) -> *mut u8 {
     // Lock the bookkeeper, and do a `realloc`.
     *BOOKKEEPER.lock().realloc(
@@ -43,6 +46,7 @@ pub unsafe fn realloc(ptr: *mut u8, old_size: usize, size: usize, align: usize) 
 /// In case of success, return the new buffer's size. On failure, return the old size.
 ///
 /// This can be used to shrink (truncate) a buffer as well.
+#[inline]
 pub unsafe fn realloc_inplace(ptr: *mut u8, old_size: usize, size: usize) -> Result<(), ()> {
     // Lock the bookkeeper, and do a `realloc_inplace`.
     if BOOKKEEPER.lock().realloc_inplace(

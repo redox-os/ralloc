@@ -29,6 +29,7 @@ pub struct MutexGuard<'a, T: 'a> {
 
 /// Release the mutex.
 impl<'a, T> Drop for MutexGuard<'a, T> {
+    #[inline]
     fn drop(&mut self) {
         self.mutex.locked.store(false, atomic::Ordering::SeqCst);
     }
@@ -37,6 +38,7 @@ impl<'a, T> Drop for MutexGuard<'a, T> {
 impl<'a, T> ops::Deref for MutexGuard<'a, T> {
     type Target = T;
 
+    #[inline]
     fn deref(&self) -> &T {
         &self.mutex.inner
     }
@@ -50,6 +52,7 @@ impl<'a, T> ops::DerefMut for MutexGuard<'a, T> {
 
 impl<T> Mutex<T> {
     /// Create a new mutex with some inner value.
+    #[inline]
     pub const fn new(inner: T) -> Mutex<T> {
         Mutex {
             inner: inner,
@@ -60,6 +63,7 @@ impl<T> Mutex<T> {
     /// Lock this mutex.
     ///
     /// If another lock is held, this will block the thread until it is released.
+    #[inline]
     pub fn lock(&self) -> MutexGuard<T> {
         // Lock the mutex.
         while self.locked.compare_and_swap(false, true, atomic::Ordering::SeqCst) {

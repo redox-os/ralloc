@@ -27,6 +27,7 @@ impl<T: NoDrop> Vec<T> {
     /// Create a new empty vector.
     ///
     /// This won't allocate a buffer, thus it will have a capacity of zero.
+    #[inline]
     pub const fn new() -> Vec<T> {
         Vec {
             ptr: Pointer::empty(),
@@ -41,6 +42,7 @@ impl<T: NoDrop> Vec<T> {
     ///
     /// This is unsafe, since it won't initialize the buffer in any way, possibly breaking type
     /// safety, memory safety, and so on. Thus, care must be taken upon usage.
+    #[inline]
     pub unsafe fn from_raw_parts(block: Block, len: usize) -> Vec<T> {
         // Make some handy assertions.
         debug_assert!(block.size() % size_of::<T>() == 0, "The size of T does not divide the \
@@ -88,11 +90,13 @@ impl<T: NoDrop> Vec<T> {
     ///
     /// Do not perform mutation or any form of manipulation through this pointer, since doing so
     /// might break invariants.
+    #[inline]
     pub fn ptr(&self) -> &Pointer<T> {
         &self.ptr
     }
 
     /// Get the capacity of this vector.
+    #[inline]
     pub fn capacity(&self) -> usize {
         self.cap
     }
@@ -100,6 +104,7 @@ impl<T: NoDrop> Vec<T> {
     /// Push an element to the end of this vector.
     ///
     /// On success, return `Ok(())`. On failure (not enough capacity), return `Err(())`.
+    #[inline]
     pub fn push(&mut self, elem: T) -> Result<(), ()> {
         if self.len == self.cap {
             Err(())
@@ -124,6 +129,7 @@ impl<T: NoDrop> From<Vec<T>> for Block {
 }
 
 impl<T: NoDrop> ops::Deref for Vec<T> {
+    #[inline]
     type Target = [T];
 
     fn deref(&self) -> &[T] {
@@ -134,6 +140,7 @@ impl<T: NoDrop> ops::Deref for Vec<T> {
 }
 
 impl<T: NoDrop> ops::DerefMut for Vec<T> {
+    #[inline]
     fn deref_mut(&mut self) -> &mut [T] {
         unsafe {
             slice::from_raw_parts_mut(*self.ptr as *mut _, self.len)
