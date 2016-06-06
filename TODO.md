@@ -1,6 +1,12 @@
-- [ ] Thread local allocator.
-- [ ] Lock reuse
+- [x] Thread local allocator.
+- [x] Lock reuse
 - [ ] Checkpoints
 - [ ] Fast `calloc`
+- [ ] Microcaches.
+- [ ] Skip blocks.
+- [ ] Flattening
+- [ ] Deallocation cache.
+- [ ] Static assumptions.
+- [ ] Thread local storage.
 - [x] Check `checks` handling of null overlaps.
 - [x] `insert` (and probably `free_inplace`) is possibly due to null overlaps.

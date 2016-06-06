@@ -1,11 +1,10 @@
 //! Memory bookkeeping.
 
-use block::Block;
-use vec::Vec;
-use fail;
+use prelude::*;
 
-use core::{ptr, cmp, mem};
-use core::mem::{align_of, size_of};
+use vec::Vec;
+
+use core::{ptr, cmp, mem, intrinsics};
 
 /// Canonicalize a BRK request.
 ///
@@ -19,7 +18,12 @@ use core::mem::{align_of, size_of};
 /// The return value is always greater than or equals to the argument.
 #[inline]
 fn canonicalize_brk(min: usize) -> usize {
+    /// The BRK multiplier.
+    ///
+    /// The factor determining the linear dependence between the minimum segment, and the acquired
+    /// segment.
     const BRK_MULTIPLIER: usize = 2;
+    /// The minimum size to be BRK'd.
     const BRK_MIN: usize = 65536;
     /// The maximal amount of _extra_ elements.
     const BRK_MAX_EXTRA: usize = 4 * 65536;
@@ -30,6 +34,15 @@ fn canonicalize_brk(min: usize) -> usize {
     debug_assert!(res >= min, "Canonicalized BRK space is smaller than the one requested.");
 
     res
+}
+
+/// The default OOM handler.
+///
+/// This will simply abort the process.
+fn default_oom_handler() -> ! {
+    unsafe {
+        intrinsics::abort();
+    }
 }
 
 /// The memory bookkeeper.
@@ -58,6 +71,11 @@ pub struct Bookkeeper {
     ///
     /// These are invariants assuming that only the public methods are used.
     pool: Vec<Block>,
+    /// The inner OOM handler.
+    oom_handler: fn() -> !,
+    /// The number of bytes currently allocated.
+    #[cfg(features = "debug_tools")]
+    allocated: usize,
 }
 
 impl Bookkeeper {
@@ -65,9 +83,22 @@ impl Bookkeeper {
     ///
     /// This will make no allocations or BRKs.
     #[inline]
+    #[cfg(features = "debug_tools")]
     pub const fn new() -> Bookkeeper {
         Bookkeeper {
             pool: Vec::new(),
+            oom_handler: default_oom_handler,
+            allocated: 0,
+        }
+
+    }
+
+    #[inline]
+    #[cfg(not(features = "debug_tools"))]
+    pub const fn new() -> Bookkeeper {
+        Bookkeeper {
+            pool: Vec::new(),
+            oom_handler: default_oom_handler,
         }
     }
 
@@ -119,6 +150,7 @@ impl Bookkeeper {
         if let Some((n, b)) = self.pool.iter_mut().enumerate().filter_map(|(n, i)| {
             // Try to split at the aligner.
             i.align(align).map(|(a, b)| {
+                // Override the old block.
                 *i = a;
                 (n, b)
             })
@@ -136,10 +168,12 @@ impl Bookkeeper {
             debug_assert!(res.size() == size, "Requested space does not match with the returned \
                           block.");
 
-            res
+            self.leave(res)
         } else {
             // No fitting block found. Allocate a new block.
-            self.alloc_fresh(size, align)
+            let res = self.alloc_fresh(size, align);
+            // "Leave" the allocator.
+            self.leave(res)
         }
     }
 
@@ -187,7 +221,11 @@ impl Bookkeeper {
     /// See [`insert`](#method.insert) for details.
     #[inline]
     pub fn free(&mut self, block: Block) {
+        // "Enter" the allocator.
+        let block = self.enter(block);
+
         let ind = self.find(&block);
+
         self.free_ind(ind, block);
     }
 
@@ -227,9 +265,11 @@ impl Bookkeeper {
         // Find the index.
         let ind = self.find(&block);
 
+        // "Leave" the allocator.
+        let block = self.enter(block);
         // Try to do an inplace reallocation.
         match self.realloc_inplace_ind(ind, block, new_size) {
-            Ok(block) => block,
+            Ok(block) => self.leave(block),
             Err(block) => {
                 // Reallocation cannot be done inplace.
 
@@ -245,10 +285,10 @@ impl Bookkeeper {
                 // Check consistency.
                 self.check();
                 debug_assert!(res.aligned_to(align), "Alignment failed.");
-                debug_assert!(res.size() == new_size, "Requested space does not match with the \
+                debug_assert!(res.size() >= new_size, "Requested space does not match with the \
                               returned block.");
 
-                res
+                self.leave(res)
             },
         }
     }
@@ -280,23 +320,11 @@ impl Bookkeeper {
     /// "Fresh" means that the space is allocated through a BRK call to the kernel.
     ///
     /// The returned pointer is guaranteed to be aligned to `align`.
+    #[inline]
     fn alloc_fresh(&mut self, size: usize, align: usize) -> Block {
-        // Calculate the canonical size (extra space is allocated to limit the number of system calls).
-        let brk_size = canonicalize_brk(size).checked_add(align).unwrap_or_else(|| fail::oom());
+        // BRK what you need.
+        let (alignment_block, res, excessive) = self.brk(size, align);
 
-        // Use SYSBRK to allocate extra data segment. The alignment is used as precursor for our
-        // allocated block. This ensures that it is properly memory aligned to the requested value.
-        let (alignment_block, rest) = unsafe {
-            Block::brk(brk_size)
-        }.align(align).unwrap();
-
-        // Split the block to leave the excessive space.
-        let (res, excessive) = rest.split(size);
-
-        // Make some assertions.
-        debug_assert!(res.aligned_to(align), "Alignment failed.");
-        debug_assert!(res.size() + alignment_block.size() + excessive.size() == brk_size, "BRK memory \
-                      leak in fresh allocation.");
         // Add it to the list. This will not change the order, since the pointer is higher than all
         // the previous blocks.
         self.push(alignment_block);
@@ -314,6 +342,9 @@ impl Bookkeeper {
     ///
     /// See [`realloc_inplace_ind`](#method.realloc_inplace.html) for more information.
     fn realloc_inplace_ind(&mut self, ind: usize, mut block: Block, new_size: usize) -> Result<Block, Block> {
+        /// Assertions...
+        debug_assert!(self.find(&block) == ind, "Block is not inserted at the appropriate index.");
+
         if new_size <= block.size() {
             // Shrink the block.
 
@@ -358,21 +389,26 @@ impl Bookkeeper {
 
     /// Free a block placed on some index.
     ///
+    /// This will at maximum insert one element.
+    ///
     /// See [`free`](#method.free) for more information.
+    #[inline]
     fn free_ind(&mut self, ind: usize, mut block: Block) {
-        // Do a lazy shortcut.
-        if block.is_empty() { return; }
+        /// Assertions...
+        debug_assert!(self.find(&block) == ind, "Block is not inserted at the appropriate index.");
 
         // Try to merge left, and then right.
-        if {
+        if self.pool.is_empty() || {
             // To avoid double bound checking and other shenanigans, we declare a variable holding our
             // entry's pointer.
             let entry = &mut self.pool[ind];
 
             // Make some handy assertions.
-            debug_assert!(entry != &mut block, "Double free.");
+            #[cfg(features = "debug_tools")]
+            assert!(entry != &mut block, "Double free.");
+
             entry.merge_right(&mut block).is_err()
-        } | (ind == 0 || self.pool[ind - 1].merge_right(&mut block).is_err()) {
+        } || ind == 0 || self.pool[ind - 1].merge_right(&mut block).is_err() {
             // Since merge failed, we will have to insert it in a normal manner.
             self.insert(ind, block);
         }
@@ -381,23 +417,42 @@ impl Bookkeeper {
         self.check();
     }
 
+    /// Extend the data segment.
+    #[inline]
+    fn brk(&self, size: usize, align: usize) -> (Block, Block, Block) {
+        // Calculate the canonical size (extra space is allocated to limit the number of system calls).
+        let brk_size = canonicalize_brk(size).checked_add(align).unwrap_or_else(|| self.oom());
+
+        // Use SBRK to allocate extra data segment. The alignment is used as precursor for our
+        // allocated block. This ensures that it is properly memory aligned to the requested value.
+        let (alignment_block, rest) = Block::brk(brk_size)
+            .unwrap_or_else(|_| self.oom())
+            .align(align)
+            .unwrap();
+
+        // Split the block to leave the excessive space.
+        let (res, excessive) = rest.split(size);
+
+        // Make some assertions.
+        debug_assert!(res.aligned_to(align), "Alignment failed.");
+        debug_assert!(res.size() + alignment_block.size() + excessive.size() == brk_size, "BRK memory leak");
+
+        (alignment_block, res, excessive)
+    }
+
     /// Push to the block pool.
     ///
     /// This will append a block entry to the end of the block pool. Make sure that this entry has
     /// a value higher than any of the elements in the list, to keep it sorted.
     #[inline]
     fn push(&mut self, mut block: Block) {
-        // First, we will do a shortcut in case that the block is empty.
-        if block.is_empty() {
-            return;
-        }
-
         // We will try to simply merge it with the last block.
         if let Some(x) = self.pool.last_mut() {
             if x.merge_right(&mut block).is_ok() {
                 return;
             }
-        }
+        } else if block.is_empty() { return; }
+
         // Merging failed. Note that trailing empty blocks are not allowed, hence the last block is
         // the only non-empty candidate which may be adjacent to `block`.
 
@@ -427,7 +482,7 @@ impl Bookkeeper {
             let len = self.pool.len();
 
             // Calculate the index.
-            let ind = self.find(&Block::empty(&self.pool.ptr().duplicate().cast()));
+            let ind = self.find(&Block::empty(Pointer::from(&*self.pool).cast()));
             // Temporarily steal the block, placing an empty vector in its place.
             let block = Block::from(mem::replace(&mut self.pool, Vec::new()));
             // TODO allow BRK-free non-inplace reservations.
@@ -435,9 +490,9 @@ impl Bookkeeper {
             // Reallocate the block pool.
 
             // We first try do it inplace.
-            match self.realloc_inplace_ind(ind, block, needed * size_of::<Block>()) {
+            match self.realloc_inplace_ind(ind, block, needed * mem::size_of::<Block>()) {
                 Ok(succ) => {
-                    // Set the extend block back.
+                    // Inplace reallocation suceeeded, place the block back as the pool.
                     self.pool = unsafe { Vec::from_raw_parts(succ, len) };
                 },
                 Err(block) => {
@@ -449,12 +504,24 @@ impl Bookkeeper {
                     // Make a fresh allocation.
                     let size = needed.saturating_add(
                         cmp::min(self.pool.capacity(), 200 + self.pool.capacity() / 2)
-                    ) * size_of::<Block>();
-                    let alloc = self.alloc_fresh(size, align_of::<Block>());
+                        // We add:
+                        + 1 // block for the alignment block.
+                        + 1 // block for the freed vector.
+                        + 1 // block for the excessive space.
+                    ) * mem::size_of::<Block>();
+                    let (alignment_block, alloc, excessive) = self.brk(size, mem::align_of::<Block>());
 
-                    // Inplace reallocation suceeeded, place the block back as the pool.
-                    let refilled = self.pool.refill(alloc);
-                    self.free_ind(ind, refilled);
+                    // Refill the pool.
+                    let old = self.pool.refill(alloc);
+
+                    // Push the alignment block (note that it is in fact in the end of the pool,
+                    // due to BRK _extending_ the segment).
+                    self.push(alignment_block);
+                    // The excessive space.
+                    self.push(excessive);
+
+                    // Free the old vector.
+                    self.free_ind(ind, old);
                 },
             }
 
@@ -537,21 +604,32 @@ impl Bookkeeper {
     /// The insertion is now completed.
     #[inline]
     fn insert(&mut self, ind: usize, block: Block) {
+        // Bound check.
+        assert!(self.pool.len() > ind, "Insertion out of bounds.");
+
         // Some assertions...
-        debug_assert!(block >= self.pool[ind + 1], "Inserting at {} will make the list unsorted.", ind);
+        debug_assert!(self.pool.is_empty() || block >= self.pool[ind + 1], "Inserting at {} will \
+                      make the list unsorted.", ind);
         debug_assert!(self.find(&block) == ind, "Block is not inserted at the appropriate index.");
 
         // TODO consider moving right before searching left.
 
         // Find the next gap, where a used block were.
         if let Some((n, _)) = self.pool.iter().skip(ind).enumerate().filter(|&(_, x)| !x.is_empty()).next() {
-            // Memmove the blocks to close in that gap.
-            unsafe {
-                ptr::copy(self.pool[ind..].as_ptr(), self.pool[ind + 1..].as_mut_ptr(), self.pool.len() - n);
+            // Reserve capacity.
+            {
+                let new_len = self.pool.len() + 1;
+                self.reserve(new_len);
             }
 
-            // Place the block left to the moved line.
-            self.pool[ind] = block;
+            unsafe {
+                // Memmove the elements.
+                ptr::copy(self.pool.get_unchecked(ind) as *const Block,
+                          self.pool.get_unchecked_mut(ind + 1) as *mut Block, self.pool.len() - n);
+
+                // Set the element.
+                *self.pool.get_unchecked_mut(ind) = block;
+            }
         } else {
             self.push(block);
         }
@@ -560,8 +638,56 @@ impl Bookkeeper {
         self.check();
     }
 
+    /// Call the OOM handler.
+    ///
+    /// This is used one out-of-memory errors, and will never return. Usually, it simply consists
+    /// of aborting the process.
+    fn oom(&self) -> ! {
+        (self.oom_handler)()
+    }
+
+    /// Set the OOM handler.
+    ///
+    /// This is called when the process is out-of-memory.
+    #[inline]
+    pub fn set_oom_handler(&mut self, handler: fn() -> !) {
+        self.oom_handler = handler;
+    }
+
+    /// Leave the allocator.
+    ///
+    /// A block should be "registered" through this function when it leaves the allocated (e.g., is
+    /// returned), these are used to keep track of the current heap usage, and memory leaks.
+    #[inline]
+    fn leave(&mut self, block: Block) -> Block {
+        // Update the number of bytes allocated.
+        #[cfg(features = "debug_tools")]
+        {
+            self.allocated += block.size();
+        }
+
+        block
+    }
+
+    /// Enter the allocator.
+    ///
+    /// A block should be "registered" through this function when it enters the allocated (e.g., is
+    /// given as argument), these are used to keep track of the current heap usage, and memory
+    /// leaks.
+    #[inline]
+    fn enter(&mut self, block: Block) -> Block {
+        // Update the number of bytes allocated.
+        #[cfg(features = "debug_tools")]
+        {
+            self.allocated -= block.size();
+        }
+
+        block
+    }
+
     /// No-op in release mode.
     #[cfg(not(debug_assertions))]
+    #[inline]
     fn check(&self) {}
 
     /// Perform consistency checks.
@@ -576,13 +702,25 @@ impl Bookkeeper {
             let mut prev = x;
             for (n, i) in self.pool.iter().enumerate().skip(1) {
                 // Check if sorted.
-                assert!(i >= prev, "The block pool is not sorted at index, {} ({:?} < {:?})", n, i, prev);
+                assert!(i >= prev, "The block pool is not sorted at index, {} ({:?} < {:?})", n, i,
+                        prev);
                 // Make sure no blocks are adjacent.
-                assert!(!prev.left_to(i) || i.is_empty(), "Adjacent blocks at index, {} ({:?} and {:?})", n, i, prev);
+                assert!(!prev.left_to(i) || i.is_empty(), "Adjacent blocks at index, {} ({:?} and \
+                        {:?})", n, i, prev);
 
                 // Set the variable tracking the previous block.
                 prev = i;
             }
         }
+    }
+
+    /// Check for memory leaks.
+    ///
+    /// This will ake sure that all the allocated blocks have been freed.
+    #[cfg(features = "debug_tools")]
+    pub fn assert_no_leak(&self) {
+        assert!(self.allocated == self.pool.capacity() * mem::size_of::<Block>(), "Not all blocks \
+                freed. Total allocated space is {} ({} free blocks).", self.allocated,
+                self.pool.len());
     }
 }

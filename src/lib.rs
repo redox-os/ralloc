@@ -4,36 +4,34 @@
 //! efficiency.
 
 #![cfg_attr(feature = "allocator", allocator)]
+#![cfg_attr(feature="clippy", feature(plugin))]
+#![cfg_attr(feature="clippy", plugin(clippy))]
+
 #![no_std]
 
 #![feature(allocator, const_fn, core_intrinsics, stmt_expr_attributes, drop_types_in_const,
-           nonzero)]
-
+           nonzero, optin_builtin_traits, type_ascription)]
 #![warn(missing_docs)]
 
-#[cfg(target_os = "redox")]
-extern crate system;
-#[cfg(not(target_os = "redox"))]
-#[macro_use]
-extern crate syscall;
-
-mod allocator;
 mod block;
 mod bookkeeper;
+mod leak;
+mod prelude;
 mod ptr;
 mod sync;
 mod sys;
 mod vec;
-pub mod fail;
+mod allocator;
 
-pub use allocator::{free, alloc, realloc, realloc_inplace};
+pub use allocator::{lock, Allocator};
+pub use sys::sbrk;
 
 /// Rust allocation symbol.
 #[no_mangle]
 #[inline]
 #[cfg(feature = "allocator")]
 pub extern fn __rust_allocate(size: usize, align: usize) -> *mut u8 {
-    alloc(size, align)
+    lock().alloc(size, align)
 }
 
 /// Rust deallocation symbol.
@@ -41,7 +39,7 @@ pub extern fn __rust_allocate(size: usize, align: usize) -> *mut u8 {
 #[inline]
 #[cfg(feature = "allocator")]
 pub unsafe extern fn __rust_deallocate(ptr: *mut u8, size: usize, _align: usize) {
-    free(ptr, size);
+    lock().free(ptr, size);
 }
 
 /// Rust reallocation symbol.
@@ -49,7 +47,7 @@ pub unsafe extern fn __rust_deallocate(ptr: *mut u8, size: usize, _align: usize)
 #[inline]
 #[cfg(feature = "allocator")]
 pub unsafe extern fn __rust_reallocate(ptr: *mut u8, old_size: usize, size: usize, align: usize) -> *mut u8 {
-    realloc(ptr, old_size, size, align)
+    lock().realloc(ptr, old_size, size, align)
 }
 
 /// Rust reallocation inplace symbol.
@@ -57,7 +55,7 @@ pub unsafe extern fn __rust_reallocate(ptr: *mut u8, old_size: usize, size: usiz
 #[inline]
 #[cfg(feature = "allocator")]
 pub unsafe extern fn __rust_reallocate_inplace(ptr: *mut u8, old_size: usize, size: usize, _align: usize) -> usize {
-    if realloc_inplace(ptr, old_size, size).is_ok() {
+    if lock().realloc_inplace(ptr, old_size, size).is_ok() {
         size
     } else {
         old_size

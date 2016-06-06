@@ -1,19 +1,21 @@
 //! Synchronization primitives.
 
-use core::sync::atomic::{self, AtomicBool};
-use core::ops;
+use prelude::*;
 
 use sys;
+
+use core::cell::UnsafeCell;
+use core::sync::atomic::{self, AtomicBool};
+use core::ops;
 
 /// A mutual exclusive container.
 ///
 /// This assures that only one holds mutability of the inner value. To get the inner value, you
 /// need acquire the "lock". If you try to lock it while a lock is already held elsewhere, it will
 /// block the thread until the lock is released.
-// TODO soundness issue when T: Drop?
-pub struct Mutex<T> {
+pub struct Mutex<T: Leak> {
     /// The inner value.
-    inner: T,
+    inner: UnsafeCell<T>,
     /// The lock boolean.
     ///
     /// This is true, if and only if the lock is currently held.
@@ -23,39 +25,43 @@ pub struct Mutex<T> {
 /// A mutex guard.
 ///
 /// This acts as the lock.
-pub struct MutexGuard<'a, T: 'a> {
+pub struct MutexGuard<'a, T: 'a + Leak> {
     mutex: &'a Mutex<T>,
 }
 
 /// Release the mutex.
-impl<'a, T> Drop for MutexGuard<'a, T> {
+impl<'a, T: Leak> Drop for MutexGuard<'a, T> {
     #[inline]
     fn drop(&mut self) {
         self.mutex.locked.store(false, atomic::Ordering::SeqCst);
     }
 }
 
-impl<'a, T> ops::Deref for MutexGuard<'a, T> {
+impl<'a, T: Leak> ops::Deref for MutexGuard<'a, T> {
     type Target = T;
 
     #[inline]
     fn deref(&self) -> &T {
-        &self.mutex.inner
+        unsafe {
+            &*self.mutex.inner.get()
+        }
     }
 }
 
-impl<'a, T> ops::DerefMut for MutexGuard<'a, T> {
+impl<'a, T: Leak> ops::DerefMut for MutexGuard<'a, T> {
     fn deref_mut(&mut self) -> &mut T {
-        unsafe { &mut *(&self.mutex.inner as *const T as *mut T) }
+        unsafe {
+            &mut *self.mutex.inner.get()
+        }
     }
 }
 
-impl<T> Mutex<T> {
+impl<T: Leak> Mutex<T> {
     /// Create a new mutex with some inner value.
     #[inline]
     pub const fn new(inner: T) -> Mutex<T> {
         Mutex {
-            inner: inner,
+            inner: UnsafeCell::new(inner),
             locked: AtomicBool::new(false),
         }
     }
@@ -66,6 +72,7 @@ impl<T> Mutex<T> {
     #[inline]
     pub fn lock(&self) -> MutexGuard<T> {
         // Lock the mutex.
+        #[cfg(not(feature = "unsafe_no_mutex_lock"))]
         while self.locked.compare_and_swap(false, true, atomic::Ordering::SeqCst) {
             // ,___,
             // {O,o}
@@ -80,7 +87,8 @@ impl<T> Mutex<T> {
     }
 }
 
-unsafe impl<T> Sync for Mutex<T> {}
+unsafe impl<T: Send + Leak> Send for Mutex<T> {}
+unsafe impl<T: Send + Leak> Sync for Mutex<T> {}
 
 #[cfg(test)]
 mod test {

@@ -1,0 +1,32 @@
+#![feature(test)]
+
+extern crate ralloc;
+extern crate test;
+
+use std::thread;
+use std::sync::mpsc;
+
+use test::Bencher;
+
+#[bench]
+fn bench(b: &mut Bencher) {
+    b.iter(|| {
+        let (tx, rx) = mpsc::channel::<Box<u64>>();
+        thread::spawn(move || {
+            tx.send(Box::new(0xBABAFBABAF)).unwrap();
+            tx.send(Box::new(0xDEADBEAF)).unwrap();
+            tx.send(Box::new(0xDECEA5E)).unwrap();
+            tx.send(Box::new(0xDEC1A551F1E5)).unwrap();
+        });
+
+        let (ty, ry) = mpsc::channel();
+        for _ in 0..0xFF {
+            let ty = ty.clone();
+            thread::spawn(move || {
+                ty.send(Box::new(0xFA11BAD)).unwrap();
+            });
+        }
+
+        (rx, ry)
+    });
+}

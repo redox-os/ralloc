@@ -1,16 +1,14 @@
 //! Vector primitive.
 
-use core::mem::size_of;
-use core::{slice, ops, ptr, mem};
+use prelude::*;
 
-use block::Block;
-use ptr::Pointer;
+use core::{slice, ops, mem, ptr};
 
 /// A low-level vector primitive.
 ///
 /// This does not perform allocation nor reallaction, thus these have to be done manually.
 /// Moreover, no destructors are called, making it possible to leak memory.
-pub struct Vec<T: NoDrop> {
+pub struct Vec<T: Leak> {
     /// A pointer to the start of the buffer.
     ptr: Pointer<T>,
     /// The capacity of the buffer.
@@ -23,7 +21,7 @@ pub struct Vec<T: NoDrop> {
     len: usize,
 }
 
-impl<T: NoDrop> Vec<T> {
+impl<T: Leak> Vec<T> {
     /// Create a new empty vector.
     ///
     /// This won't allocate a buffer, thus it will have a capacity of zero.
@@ -45,12 +43,12 @@ impl<T: NoDrop> Vec<T> {
     #[inline]
     pub unsafe fn from_raw_parts(block: Block, len: usize) -> Vec<T> {
         // Make some handy assertions.
-        debug_assert!(block.size() % size_of::<T>() == 0, "The size of T does not divide the \
+        debug_assert!(block.size() % mem::size_of::<T>() == 0, "The size of T does not divide the \
                       block's size.");
 
         Vec {
-            cap: block.size() / size_of::<T>(),
-            ptr: Pointer::new(*block.into_ptr() as *mut T),
+            cap: block.size() / mem::size_of::<T>(),
+            ptr: Pointer::new(*Pointer::from(block) as *mut T),
             len: len,
         }
     }
@@ -66,11 +64,11 @@ impl<T: NoDrop> Vec<T> {
     /// debug mode.
     pub fn refill(&mut self, block: Block) -> Block {
         // Calculate the new capacity.
-        let new_cap = block.size() / size_of::<T>();
+        let new_cap = block.size() / mem::size_of::<T>();
 
         // Make some assertions.
         assert!(self.len <= new_cap, "Block not large enough to cover the vector.");
-        debug_assert!(new_cap * size_of::<T>() == block.size(), "The size of T does not divide the \
+        debug_assert!(new_cap * mem::size_of::<T>() == block.size(), "The size of T does not divide the \
                       block's size.");
 
         let old = mem::replace(self, Vec::new());
@@ -80,19 +78,10 @@ impl<T: NoDrop> Vec<T> {
 
         // Update the fields of `self`.
         self.cap = new_cap;
-        self.ptr = unsafe { Pointer::new(*block.into_ptr() as *mut T) };
+        self.ptr = unsafe { Pointer::new(*Pointer::from(block) as *mut T) };
         self.len = old.len;
 
         Block::from(old)
-    }
-
-    /// Get the inner pointer.
-    ///
-    /// Do not perform mutation or any form of manipulation through this pointer, since doing so
-    /// might break invariants.
-    #[inline]
-    pub fn ptr(&self) -> &Pointer<T> {
-        &self.ptr
     }
 
     /// Get the capacity of this vector.
@@ -122,13 +111,13 @@ impl<T: NoDrop> Vec<T> {
 }
 
 /// Cast this vector to the respective block.
-impl<T: NoDrop> From<Vec<T>> for Block {
+impl<T: Leak> From<Vec<T>> for Block {
     fn from(from: Vec<T>) -> Block {
-        unsafe { Block::from_raw_parts(from.ptr.cast(), from.cap * size_of::<T>()) }
+        unsafe { Block::from_raw_parts(from.ptr.cast(), from.cap * mem::size_of::<T>()) }
     }
 }
 
-impl<T: NoDrop> ops::Deref for Vec<T> {
+impl<T: Leak> ops::Deref for Vec<T> {
     #[inline]
     type Target = [T];
 
@@ -139,7 +128,7 @@ impl<T: NoDrop> ops::Deref for Vec<T> {
     }
 }
 
-impl<T: NoDrop> ops::DerefMut for Vec<T> {
+impl<T: Leak> ops::DerefMut for Vec<T> {
     #[inline]
     fn deref_mut(&mut self) -> &mut [T] {
         unsafe {
@@ -148,21 +137,11 @@ impl<T: NoDrop> ops::DerefMut for Vec<T> {
     }
 }
 
-/// Types that have no destructor.
-///
-/// This trait act as a simple static assertions catching dumb logic errors and memory leaks.
-///
-/// Since one cannot define mutually exclusive traits, we have this as a temporary hack.
-pub trait NoDrop {}
-
-impl NoDrop for Block {}
-impl NoDrop for u8 {}
-
 #[cfg(test)]
 mod test {
     use super::*;
-    use block::Block;
-    use ptr::Pointer;
+
+    use prelude::*;
 
     #[test]
     fn test_vec() {

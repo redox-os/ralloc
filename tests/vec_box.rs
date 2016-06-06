@@ -22,4 +22,8 @@ fn test() {
         *vec[i] = 0;
         assert_eq!(*vec[i], 0);
     }
+
+    drop(vec);
+
+    ralloc::lock().debug_assert_no_leak();
 }

@@ -7,7 +7,7 @@ use core::{ops, marker};
 ///
 /// A wrapper around a raw non-null `*mut T` that indicates that the possessor of this wrapper owns
 /// the referent.
-#[derive(PartialEq, Debug)]
+#[derive(PartialEq, Debug, Clone)]
 pub struct Pointer<T> {
     /// The internal pointer.
     ptr: NonZero<*mut T>,
@@ -35,14 +35,13 @@ impl<T> Pointer<T> {
         }
     }
 
-    /// Duplicate this pointer.
+    /// Create an "empty" `Pointer`.
     ///
-    /// For technical reasons, this is not implemented through the `Clone` trait, although it acts
-    /// similarly.
+    /// This acts as a null pointer, although it is represented by 0x1 instead of 0x0.
     #[inline]
-    pub fn duplicate(&self) -> Pointer<T> {
+    pub const fn empty() -> Pointer<T> {
         Pointer {
-            ptr: self.ptr,
+            ptr: unsafe { NonZero::new(0x1 as *mut T) },
             _phantom: marker::PhantomData,
         }
     }
@@ -58,17 +57,6 @@ impl<T> Pointer<T> {
         }
     }
 
-    /// Create an "empty" `Pointer`.
-    ///
-    /// This acts as a null pointer, although it is represented by 0x1 instead of 0x0.
-    #[inline]
-    pub const fn empty() -> Pointer<T> {
-        Pointer {
-            ptr: unsafe { NonZero::new(0x1 as *mut T) },
-            _phantom: marker::PhantomData,
-        }
-    }
-
     /// Offset this pointer.
     ///
     /// This will add some value multiplied by the size of T to the pointer.
@@ -79,6 +67,15 @@ impl<T> Pointer<T> {
     #[inline]
     pub unsafe fn offset(self, diff: isize) -> Pointer<T> {
         Pointer::new(self.ptr.offset(diff))
+    }
+}
+
+unsafe impl<T: Send> Send for Pointer<T> {}
+unsafe impl<T: Sync> Sync for Pointer<T> {}
+
+impl<'a, T> From<&'a [T]> for Pointer<T> {
+    fn from(from: &[T]) -> Pointer<T> {
+        unsafe { Pointer::new(from.as_ptr() as *mut T) }
     }
 }
 
@@ -102,7 +99,7 @@ mod test {
         unsafe {
             let ptr = Pointer::new(&mut x[0] as *mut u8);
             assert_eq!(**ptr, b'a');
-            assert_eq!(**ptr.duplicate().cast::<[u8; 1]>(), [b'a']);
+            assert_eq!(**ptr.clone().cast::<[u8; 1]>(), [b'a']);
             assert_eq!(**ptr.offset(1), b'b');
         }
     }

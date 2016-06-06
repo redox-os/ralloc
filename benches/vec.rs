@@ -15,5 +15,5 @@ fn bench(b: &mut Bencher) {
         stuff.reserve(100000);
 
         stuff
-    })
+    });
 }

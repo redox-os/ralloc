@@ -12,5 +12,5 @@ fn bench(b: &mut Bencher) {
         let _bx2 = Box::new(0xF0002);
 
         "abc".to_owned().into_boxed_str()
-    })
+    });
 }

@@ -3,10 +3,11 @@
 //! Blocks are the main unit for the memory bookkeeping. A block is a simple construct with a
 //! `Pointer` pointer and a size. Occupied (non-free) blocks are represented by a zero-sized block.
 
-use core::{ptr, cmp, mem, fmt};
+use prelude::*;
 
-use ptr::Pointer;
 use sys;
+
+use core::{ptr, cmp, mem, fmt};
 
 /// A contiguous memory block.
 ///
@@ -25,16 +26,6 @@ pub struct Block {
 }
 
 impl Block {
-    /// Create an empty block starting at `ptr`.
-    #[inline]
-    pub fn empty(ptr: &Pointer<u8>) -> Block {
-        Block {
-            size: 0,
-            // This won't alias `ptr`, since the block is empty.
-            ptr: unsafe { Pointer::new(**ptr) },
-        }
-    }
-
     /// Construct a block from its raw parts (pointer and size).
     #[inline]
     pub unsafe fn from_raw_parts(ptr: Pointer<u8>, size: usize) ->  Block {
@@ -44,19 +35,24 @@ impl Block {
         }
     }
 
-    /// Get the size of the block.
-    pub fn size(&self) -> usize {
-        self.size
+    /// BRK allocate a block.
+    #[inline]
+    pub fn brk(size: usize) -> Result<Block, ()> {
+        Ok(Block {
+            size: size,
+            ptr: unsafe {
+                Pointer::new(try!(sys::sbrk(size as isize)))
+            },
+        })
     }
 
-    /// BRK allocate a block.
-    ///
-    /// This is unsafe due to the allocator assuming that only it makes use of BRK.
+    /// Create an empty block starting at `ptr`.
     #[inline]
-   pub unsafe fn brk(size: usize) -> Block {
+    pub fn empty(ptr: Pointer<u8>) -> Block {
         Block {
-            size: size,
-            ptr: sys::inc_brk(size).unwrap_or_else(|x| x.handle()),
+            size: 0,
+            // This won't alias `ptr`, since the block is empty.
+            ptr: unsafe { Pointer::new(*ptr) },
         }
     }
 
@@ -65,13 +61,18 @@ impl Block {
     /// This will simply extend the block, adding the size of the block, and then set the size to
     /// zero. The return value is `Ok(())` on success, and `Err(())` on failure (e.g., the blocks
     /// are not adjacent).
+    ///
+    /// If you merge with a zero sized block, it will succeed, even if they are not adjacent.
     #[inline]
     pub fn merge_right(&mut self, block: &mut Block) -> Result<(), ()> {
-        if self.left_to(&block) {
+        if block.is_empty() {
+            Ok(())
+        } else if self.left_to(block) {
             // Since the end of `block` is bounded by the address space, adding them cannot
             // overflow.
             self.size += block.pop().size;
             // We pop it to make sure it isn't aliased.
+
             Ok(())
         } else { Err(()) }
     }
@@ -79,19 +80,18 @@ impl Block {
     /// Is this block empty/free?
     #[inline]
     pub fn is_empty(&self) -> bool {
-        self.size != 0
+        self.size == 0
+    }
+
+    /// Get the size of the block.
+    pub fn size(&self) -> usize {
+        self.size
     }
 
     /// Is this block aligned to `align`?
     #[inline]
     pub fn aligned_to(&self, align: usize) -> bool {
         *self.ptr as usize % align == 0
-    }
-
-    /// Get the inner pointer.
-    #[inline]
-    pub fn into_ptr(self) -> Pointer<u8> {
-        self.ptr
     }
 
     /// memcpy the block to another pointer.
@@ -109,12 +109,22 @@ impl Block {
         }
     }
 
+    /// Volatile zero this memory.
+    #[cfg(feature = "security")]
+    pub fn zero(&mut self) {
+        use core::intrinsics;
+
+        unsafe {
+            intrinsics::volatile_set_memory(*self.ptr, 0, self.size);
+        }
+    }
+
     /// "Pop" this block.
     ///
     /// This marks it as free, and returns the old value.
     #[inline]
     pub fn pop(&mut self) -> Block {
-        let empty = Block::empty(&self.ptr);
+        let empty = Block::empty(self.ptr.clone());
         mem::replace(self, empty)
     }
 
@@ -137,7 +147,7 @@ impl Block {
         (
             Block {
                 size: pos,
-                ptr: self.ptr.duplicate(),
+                ptr: self.ptr.clone(),
             },
             Block {
                 size: self.size - pos,
@@ -161,7 +171,7 @@ impl Block {
             Some((
                 Block {
                     size: aligner,
-                    ptr: old.ptr.duplicate(),
+                    ptr: old.ptr.clone(),
                 },
                 Block {
                     size: old.size - aligner,
@@ -169,6 +179,14 @@ impl Block {
                 }
             ))
         } else { None }
+    }
+}
+
+impl !Sync for Block {}
+
+impl From<Block> for Pointer<u8> {
+    fn from(from: Block) -> Pointer<u8> {
+        from.ptr
     }
 }
 
@@ -204,9 +222,7 @@ impl fmt::Debug for Block {
 
 #[cfg(test)]
 mod test {
-    use super::*;
-
-    use ptr::Pointer;
+    use prelude::*;
 
     #[test]
     fn test_array() {
@@ -231,7 +247,7 @@ mod test {
         assert!(rest.is_empty());
         assert!(lorem.align(2).unwrap().1.aligned_to(2));
         assert!(rest.align(16).unwrap().1.aligned_to(16));
-        assert_eq!(*lorem.into_ptr() as usize + 5, *rest.into_ptr() as usize);
+        assert_eq!(*Pointer::from(lorem) as usize + 5, *Pointer::from(rest) as usize);
     }
 
     #[test]
@@ -243,6 +259,10 @@ mod test {
 
         let (mut lorem, mut rest) = block.split(5);
         lorem.merge_right(&mut rest).unwrap();
+
+        let mut tmp = rest.split(0).0;
+        assert!(tmp.is_empty());
+        lorem.split(2).0.merge_right(&mut tmp).unwrap();
     }
 
     #[test]

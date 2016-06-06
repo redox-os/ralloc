@@ -3,9 +3,32 @@ name = "ralloc"
 version = "0.1.0"
 authors = ["ticki <ticki@users.noreply.github.com>"]
 
-[target.'cfg(unix)'.dependencies]
-syscall = "0.2.1"
+# URLs and paths
+description = "An efficient alternative platform-agnostic allocator."
+repository = "https://github.com/redox-os/ralloc"
+readme = "README.md"
+
+# Metadata
+keywords = ["alloc", "malloc", "allocator", "ralloc", "redox"]
+license = "MIT"
+
+[dependencies.clippy]
+git = "https://github.com/Manishearth/rust-clippy.git"
+optional = true
+
+[profile.release]
+panic = "abort"
+opt-level = 3
+debug = false
+rpath = false
+lto = true
+debug-assertions = false
+codegen-units = 1
 
 [features]
-default = ["allocator"]
+default = ["allocator", "clippy"]
 allocator = []
+debug_tools = []
+security = []
+unsafe_no_brk_lock = []
+unsafe_no_mutex_lock = []
