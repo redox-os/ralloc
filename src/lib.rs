@@ -13,6 +13,9 @@
            nonzero, optin_builtin_traits, type_ascription)]
 #![warn(missing_docs)]
 
+#[macro_use]
+mod assertions;
+
 mod block;
 mod bookkeeper;
 mod leak;
