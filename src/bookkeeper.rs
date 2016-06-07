@@ -149,10 +149,12 @@ impl Bookkeeper {
         // TODO: scan more intelligently.
         if let Some((n, b)) = self.pool.iter_mut().enumerate().filter_map(|(n, i)| {
             // Try to split at the aligner.
-            i.align(align).map(|(a, b)| {
-                // Override the old block.
-                *i = a;
-                (n, b)
+            i.align(align).and_then(|(a, b)| {
+                if b.size() >= size {
+                    // Override the old block.
+                    *i = a;
+                    Some((n, b))
+                } else { None }
             })
         }).next() {
             let (res, excessive) = b.split(size);
