@@ -4,8 +4,8 @@
 //! efficiency.
 
 #![cfg_attr(feature = "allocator", allocator)]
-#![cfg_attr(feature="clippy", feature(plugin))]
-#![cfg_attr(feature="clippy", plugin(clippy))]
+#![cfg_attr(feature = "clippy", feature(plugin))]
+#![cfg_attr(feature = "clippy", plugin(clippy))]
 
 #![no_std]
 
@@ -13,8 +13,9 @@
            nonzero, optin_builtin_traits, type_ascription)]
 #![warn(missing_docs)]
 
+#[cfg(feature = "internals")]
 #[macro_use]
-mod assertions;
+mod debug;
 
 mod block;
 mod bookkeeper;

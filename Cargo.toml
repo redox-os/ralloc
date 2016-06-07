@@ -27,8 +27,10 @@ codegen-units = 1
 
 [features]
 default = ["allocator", "clippy"]
+
 allocator = []
 debug_tools = []
+internals = []
 security = []
 unsafe_no_brk_lock = []
 unsafe_no_mutex_lock = []
