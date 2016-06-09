@@ -396,7 +396,10 @@ impl Bookkeeper {
     /// See [`free`](#method.free) for more information.
     #[inline]
     fn free_ind(&mut self, ind: usize, mut block: Block) {
-        /// Assertions...
+        // Short circuit in case of empty block.
+        if block.is_empty() { return; }
+
+        // Assertions...
         debug_assert!(self.find(&block) == ind, "Block is not inserted at the appropriate index.");
 
         // Try to merge left, and then right.
