@@ -15,3 +15,5 @@ pub trait Leak {}
 impl Leak for () {}
 impl Leak for Block {}
 impl Leak for u8 {}
+impl Leak for u16 {}
+impl Leak for i32 {}

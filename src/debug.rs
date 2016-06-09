@@ -15,6 +15,7 @@ pub struct Writer {
 }
 
 impl Writer {
+    /// Standard error output.
     pub fn stderr() -> Writer {
         Writer {
             fd: 2,

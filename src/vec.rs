@@ -41,11 +41,8 @@ impl<T: Leak> Vec<T> {
     /// This is unsafe, since it won't initialize the buffer in any way, possibly breaking type
     /// safety, memory safety, and so on. Thus, care must be taken upon usage.
     #[inline]
+    #[cfg(test)]
     pub unsafe fn from_raw_parts(block: Block, len: usize) -> Vec<T> {
-        // Make some handy assertions.
-        debug_assert!(block.size() % mem::size_of::<T>() == 0, "The size of T does not divide the \
-                      block's size.");
-
         Vec {
             cap: block.size() / mem::size_of::<T>(),
             ptr: Pointer::new(*Pointer::from(block) as *mut T),
@@ -68,8 +65,7 @@ impl<T: Leak> Vec<T> {
 
         // Make some assertions.
         assert!(self.len <= new_cap, "Block not large enough to cover the vector.");
-        debug_assert!(new_cap * mem::size_of::<T>() == block.size(), "The size of T does not divide the \
-                      block's size.");
+        self.check(&block);
 
         let old = mem::replace(self, Vec::new());
         unsafe {
@@ -107,6 +103,20 @@ impl<T: Leak> Vec<T> {
             self.len += 1;
             Ok(())
         }
+    }
+
+    /// Check the validity of a block with respect to the vector.
+    ///
+    /// Blocks not passing this checks might lead to logic errors when used as buffer for the
+    /// vector.
+    ///
+    /// This is a NO-OP in release mode.
+    #[inline]
+    fn check(&self, block: &Block) {
+        debug_assert!(block.size() % mem::size_of::<T>() == 0, "The size of T does not divide the \
+                      block's size.");
+        debug_assert!(self.len <= block.size() / mem::size_of::<T>(), "Block not large enough to \
+                      cover the vector.");
     }
 }
 

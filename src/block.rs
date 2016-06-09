@@ -13,11 +13,18 @@ use core::{ptr, cmp, mem, fmt};
 ///
 /// This provides a number of guarantees,
 ///
-/// 1. The inner pointer is never aliased. No byte in the block is contained in another block
-///    (aliased in this case is defined purely based on liveliness).
-/// 2. The buffer is valid, but not necessarily initialized.
+/// 1. The buffer is valid for the block's lifetime, but not necessarily initialized.
+/// 2. The Block "owns" the inner data.
+/// 3. There is no interior mutability. Mutation requires either mutable access or ownership over
+///    the block.
+/// 4. The buffer is not aliased. That is, it do not overlap with other blocks or is aliased in any
+///    way.
 ///
-/// All this is enforced through the type system.
+/// All this is enforced through the type system. These invariants can only be broken through
+/// unsafe code.
+///
+/// Accessing it through an immutable reference does not break these guarantees. That is, you are
+/// not able to read/mutate without acquiring a _mutable_ reference.
 pub struct Block {
     /// The size of this block, in bytes.
     size: usize,
@@ -161,7 +168,12 @@ impl Block {
     /// Returns an `None` holding the intact block if `align` is out of bounds.
     #[inline]
     pub fn align(&mut self, align: usize) -> Option<(Block, Block)> {
-        let aligner = align - *self.ptr as usize % align;
+        // Calculate the aligner, which defines the smallest size required as precursor to align
+        // the block to `align`.
+        let aligner = (align - *self.ptr as usize % align) % align;
+        //                                                 ^^^^^^^^
+        // To avoid wasting space on the case where the block is already aligned, we calculate it
+        // modulo `align`.
 
         // Bound check.
         if aligner < self.size {
@@ -182,14 +194,13 @@ impl Block {
     }
 }
 
-impl !Sync for Block {}
-
 impl From<Block> for Pointer<u8> {
     fn from(from: Block) -> Pointer<u8> {
         from.ptr
     }
 }
 
+/// Compare the blocks address.
 impl PartialOrd for Block {
     #[inline]
     fn partial_cmp(&self, other: &Block) -> Option<cmp::Ordering> {
@@ -237,16 +248,10 @@ mod test {
         assert_eq!(lorem.size() + rest.size(), arr.len());
         assert!(lorem < rest);
 
-        /* TODO
-        assert_eq!(unsafe {
-            slice::from_raw_parts(*lorem.into_ptr() as *const _, lorem.size())
-        }, b"Lorem");
-        */
-
         assert_eq!(lorem, lorem);
         assert!(rest.is_empty());
         assert!(lorem.align(2).unwrap().1.aligned_to(2));
-        assert!(rest.align(16).unwrap().1.aligned_to(16));
+        assert!(rest.align(15).unwrap().1.aligned_to(15));
         assert_eq!(*Pointer::from(lorem) as usize + 5, *Pointer::from(rest) as usize);
     }
 
@@ -275,5 +280,19 @@ mod test {
 
         // Test OOB.
         block.split(6);
+    }
+
+    #[test]
+    fn test_mutate() {
+        let mut arr = [0u8, 2, 0, 0, 255, 255];
+
+        let block = unsafe {
+            Block::from_raw_parts(Pointer::new(&mut arr[0] as *mut u8), 6)
+        };
+
+        let (a, mut b) = block.split(2);
+        a.copy_to(&mut b);
+
+        assert_eq!(arr, [0, 2, 0, 2, 255, 255]);
     }
 }

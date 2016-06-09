@@ -408,6 +408,8 @@ impl Bookkeeper {
             // Make some handy assertions.
             #[cfg(features = "debug_tools")]
             assert!(entry != &mut block, "Double free.");
+            debug_assert!(block.is_empty() || entry <= &mut block, "Block merged in the wrong \
+                          direction.");
 
             entry.merge_right(&mut block).is_err()
         } || ind == 0 || self.pool[ind - 1].merge_right(&mut block).is_err() {
@@ -480,52 +482,32 @@ impl Bookkeeper {
     #[inline]
     fn reserve(&mut self, needed: usize) {
         if needed > self.pool.capacity() {
-            // Fool the borrowchecker.
-            let len = self.pool.len();
-
-            // Calculate the index.
-            let ind = self.find(&Block::empty(Pointer::from(&*self.pool).cast()));
-            // Temporarily steal the block, placing an empty vector in its place.
-            let block = Block::from(mem::replace(&mut self.pool, Vec::new()));
             // TODO allow BRK-free non-inplace reservations.
+            // TODO Enable inplace reallocation in this position.
 
             // Reallocate the block pool.
 
-            // We first try do it inplace.
-            match self.realloc_inplace_ind(ind, block, needed * mem::size_of::<Block>()) {
-                Ok(succ) => {
-                    // Inplace reallocation suceeeded, place the block back as the pool.
-                    self.pool = unsafe { Vec::from_raw_parts(succ, len) };
-                },
-                Err(block) => {
-                    // Inplace alloc failed, so we have to BRK some new space.
+            // Make a fresh allocation.
+            let size = needed.saturating_add(
+                cmp::min(self.pool.capacity(), 200 + self.pool.capacity() / 2)
+                // We add:
+                + 1 // block for the alignment block.
+                + 1 // block for the freed vector.
+                + 1 // block for the excessive space.
+            ) * mem::size_of::<Block>();
+            let (alignment_block, alloc, excessive) = self.brk(size, mem::align_of::<Block>());
 
-                    // Reconstruct the vector.
-                    self.pool = unsafe { Vec::from_raw_parts(block, len) };
+            // Refill the pool.
+            let old = self.pool.refill(alloc);
 
-                    // Make a fresh allocation.
-                    let size = needed.saturating_add(
-                        cmp::min(self.pool.capacity(), 200 + self.pool.capacity() / 2)
-                        // We add:
-                        + 1 // block for the alignment block.
-                        + 1 // block for the freed vector.
-                        + 1 // block for the excessive space.
-                    ) * mem::size_of::<Block>();
-                    let (alignment_block, alloc, excessive) = self.brk(size, mem::align_of::<Block>());
+            // Push the alignment block (note that it is in fact in the end of the pool,
+            // due to BRK _extending_ the segment).
+            self.push(alignment_block);
+            // The excessive space.
+            self.push(excessive);
 
-                    // Refill the pool.
-                    let old = self.pool.refill(alloc);
-
-                    // Push the alignment block (note that it is in fact in the end of the pool,
-                    // due to BRK _extending_ the segment).
-                    self.push(alignment_block);
-                    // The excessive space.
-                    self.push(excessive);
-
-                    // Free the old vector.
-                    self.free_ind(ind, old);
-                },
-            }
+            // Free the old vector.
+            self.free(old);
 
             // Check consistency.
             self.check();
@@ -613,8 +595,7 @@ impl Bookkeeper {
         debug_assert!(self.pool.is_empty() || block >= self.pool[ind + 1], "Inserting at {} will \
                       make the list unsorted.", ind);
         debug_assert!(self.find(&block) == ind, "Block is not inserted at the appropriate index.");
-
-        // TODO consider moving right before searching left.
+        debug_assert!(!block.is_empty(), "Inserting an empty block.");
 
         // Find the next gap, where a used block were.
         if let Some((n, _)) = self.pool.iter().skip(ind).enumerate().filter(|&(_, x)| !x.is_empty()).next() {

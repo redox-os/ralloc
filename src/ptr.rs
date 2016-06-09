@@ -73,12 +73,6 @@ impl<T> Pointer<T> {
 unsafe impl<T: Send> Send for Pointer<T> {}
 unsafe impl<T: Sync> Sync for Pointer<T> {}
 
-impl<'a, T> From<&'a [T]> for Pointer<T> {
-    fn from(from: &[T]) -> Pointer<T> {
-        unsafe { Pointer::new(from.as_ptr() as *mut T) }
-    }
-}
-
 impl<T> ops::Deref for Pointer<T> {
     type Target = *mut T;
 
@@ -101,6 +95,14 @@ mod test {
             assert_eq!(**ptr, b'a');
             assert_eq!(**ptr.clone().cast::<[u8; 1]>(), [b'a']);
             assert_eq!(**ptr.offset(1), b'b');
+        }
+
+        let mut x = ['a', 'b'];
+
+        unsafe {
+            let ptr = Pointer::new(&mut x[0] as *mut char);
+            assert_eq!(**ptr.clone().cast::<[char; 1]>(), ['a']);
+            assert_eq!(**ptr.offset(1), 'b');
         }
     }
 
