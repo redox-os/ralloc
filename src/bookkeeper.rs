@@ -324,15 +324,17 @@ impl Bookkeeper {
     /// The returned pointer is guaranteed to be aligned to `align`.
     #[inline]
     fn alloc_fresh(&mut self, size: usize, align: usize) -> Block {
+        // To avoid shenanigans with unbounded recursion and other stuff, we pre-reserve the
+        // buffer.
+        let needed = self.pool.len() + 2;
+        self.reserve(needed);
+
         // BRK what you need.
         let (alignment_block, res, excessive) = self.brk(size, align);
 
         // Add it to the list. This will not change the order, since the pointer is higher than all
         // the previous blocks.
-        self.push(alignment_block);
-
-        // Push the excessive space to the end of the block pool.
-        self.push(excessive);
+        self.double_push(alignment_block, excessive);
 
         // Check consistency.
         self.check();
@@ -447,34 +449,43 @@ impl Bookkeeper {
         (alignment_block, res, excessive)
     }
 
-    /// Push to the block pool.
+    /// Push two blocks to the block pool.
     ///
-    /// This will append a block entry to the end of the block pool. Make sure that this entry has
-    /// a value higher than any of the elements in the list, to keep it sorted.
+    /// This will append a block entry to the end of the block pool (and merge if possible). Make
+    /// sure that this entry has a value higher than any of the elements in the list, to keep it
+    /// sorted.
+    ///
+    /// This guarantees linearity so that the blocks will be adjacent.
     #[inline]
-    fn push(&mut self, mut block: Block) {
-        // We will try to simply merge it with the last block.
-        if let Some(x) = self.pool.last_mut() {
-            if x.merge_right(&mut block).is_ok() {
-                return;
-            }
-        } else if block.is_empty() { return; }
-
-        // Merging failed. Note that trailing empty blocks are not allowed, hence the last block is
-        // the only non-empty candidate which may be adjacent to `block`.
-
-        // It failed, so we will need to add a new block to the end.
+    fn double_push(&mut self, block_a: Block, block_b: Block) {
+        // Reserve extra elements.
         let len = self.pool.len();
+        self.reserve(len + 2);
 
-        // This is guaranteed not to overflow, since `len` is bounded by the address space, since
-        // each entry represent at minimum one byte, meaning that `len` is bounded by the address
-        // space.
-        self.reserve(len + 1);
+        self.push_no_reserve(block_a);
+        self.push_no_reserve(block_b);
+    }
 
-        let res = self.pool.push(block);
+    /// Push an element without reserving.
+    fn push_no_reserve(&mut self, mut block: Block) {
+        // Short-circuit in case on empty block.
+        if !block.is_empty() {
+            // We will try to simply merge it with the last block.
+            if let Some(x) = self.pool.last_mut() {
+                if x.merge_right(&mut block).is_ok() {
+                    return;
+                }
+            }
 
-        // Make some assertions.
-        debug_assert!(res.is_ok(), "Push failed (buffer filled).");
+            // Merging failed. Note that trailing empty blocks are not allowed, hence the last block is
+            // the only non-empty candidate which may be adjacent to `block`.
+
+            // We push.
+            let res = self.pool.push(block);
+
+            // Make some assertions.
+            debug_assert!(res.is_ok(), "Push failed (buffer filled).");
+        }
         self.check();
     }
 
@@ -503,11 +514,9 @@ impl Bookkeeper {
             // Refill the pool.
             let old = self.pool.refill(alloc);
 
-            // Push the alignment block (note that it is in fact in the end of the pool,
-            // due to BRK _extending_ the segment).
-            self.push(alignment_block);
-            // The excessive space.
-            self.push(excessive);
+            // Double push the alignment block and the excessive space linearly (note that it is in
+            // fact in the end of the pool, due to BRK _extending_ the segment).
+            self.double_push(alignment_block, excessive);
 
             // Free the old vector.
             self.free(old);
@@ -592,7 +601,7 @@ impl Bookkeeper {
     #[inline]
     fn insert(&mut self, ind: usize, block: Block) {
         // Bound check.
-        assert!(self.pool.len() > ind, "Insertion out of bounds.");
+        assert!(self.pool.len() >= ind, "Insertion out of bounds.");
 
         // Some assertions...
         debug_assert!(self.pool.is_empty() || block >= self.pool[ind + 1], "Inserting at {} will \
@@ -617,7 +626,14 @@ impl Bookkeeper {
                 *self.pool.get_unchecked_mut(ind) = block;
             }
         } else {
-            self.push(block);
+            // Calculate the entry where we will place the block.
+            let mut ent = unsafe { self.pool.get_unchecked_mut(ind) };
+
+            // Catch dumb logic bugs.
+            debug_assert!(ent.is_empty(), "Replaced block is not empty!");
+
+            // Replace the empty entry with our block.
+            *ent = block;
         }
 
         // Check consistency.
