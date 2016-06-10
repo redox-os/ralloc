@@ -10,12 +10,14 @@
 #![no_std]
 
 #![feature(allocator, const_fn, core_intrinsics, stmt_expr_attributes, drop_types_in_const,
-           nonzero, optin_builtin_traits, type_ascription)]
+           nonzero, optin_builtin_traits, type_ascription, question_mark)]
 #![warn(missing_docs)]
 
-#[cfg(feature = "internals")]
+#[cfg(feature = "libc_write")]
 #[macro_use]
-mod debug;
+mod write;
+#[macro_use]
+mod log;
 
 mod block;
 mod bookkeeper;

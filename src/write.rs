@@ -1,4 +1,6 @@
-//! Debugging primitives.
+//! Direct libc-based write for internal debugging.
+//!
+//! This will replace the assertion macros to avoid deadlocks in panics.
 
 use core::fmt;
 
@@ -38,12 +40,13 @@ impl fmt::Write for Writer {
 #[macro_export]
 macro_rules! assert {
     ($e:expr) => {{
-        use debug;
+        use write;
+
         use core::intrinsics;
         use core::fmt::Write;
 
         if !$e {
-            let _ = write!(debug::Writer::stderr(), "assertion failed at {}:{}: {}", file!(),
+            let _ = write!(write::Writer::stderr(), "assertion failed at {}:{}: {}", file!(),
                            line!(), stringify!($e));
 
             #[allow(unused_unsafe)]
@@ -51,14 +54,15 @@ macro_rules! assert {
         }
     }};
     ($e:expr, $( $arg:expr ),*) => {{
-        use debug;
+        use write;
+
         use core::intrinsics;
         use core::fmt::Write;
 
         if !$e {
-            let _ = write!(debug::Writer::stderr(), "assertion failed at {}:{}: `{}` - ", file!(),
+            let _ = write!(write::Writer::stderr(), "assertion failed at {}:{}: `{}` - ", file!(),
                            line!(), stringify!($e));
-            let _ = writeln!(debug::Writer::stderr(), $( $arg ),*);
+            let _ = writeln!(write::Writer::stderr(), $( $arg ),*);
 
             #[allow(unused_unsafe)]
             unsafe { intrinsics::abort() }

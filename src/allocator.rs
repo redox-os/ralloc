@@ -98,7 +98,7 @@ impl Allocator {
     ///
     /// In release mode, this is a NOOP.
     pub fn debug_assert_no_leak(&self) {
-        #[cfg(features = "debug_tools")]
+        #[cfg(feature = "debug_tools")]
         self.inner.assert_no_leak();
     }
 }

@@ -74,7 +74,7 @@ pub struct Bookkeeper {
     /// The inner OOM handler.
     oom_handler: fn() -> !,
     /// The number of bytes currently allocated.
-    #[cfg(features = "debug_tools")]
+    #[cfg(feature = "debug_tools")]
     allocated: usize,
 }
 
@@ -83,7 +83,7 @@ impl Bookkeeper {
     ///
     /// This will make no allocations or BRKs.
     #[inline]
-    #[cfg(features = "debug_tools")]
+    #[cfg(feature = "debug_tools")]
     pub const fn new() -> Bookkeeper {
         Bookkeeper {
             pool: Vec::new(),
@@ -94,7 +94,7 @@ impl Bookkeeper {
     }
 
     #[inline]
-    #[cfg(not(features = "debug_tools"))]
+    #[cfg(not(feature = "debug_tools"))]
     pub const fn new() -> Bookkeeper {
         Bookkeeper {
             pool: Vec::new(),
@@ -267,6 +267,9 @@ impl Bookkeeper {
         // Find the index.
         let ind = self.find(&block);
 
+        // Logging.
+        log!(self.pool;ind, "Reallocating {:?} to size {} with align {}.", block, new_size, align);
+
         // "Leave" the allocator.
         let block = self.enter(block);
         // Try to do an inplace reallocation.
@@ -346,6 +349,9 @@ impl Bookkeeper {
     ///
     /// See [`realloc_inplace_ind`](#method.realloc_inplace.html) for more information.
     fn realloc_inplace_ind(&mut self, ind: usize, mut block: Block, new_size: usize) -> Result<Block, Block> {
+        // Logging.
+        log!(self.pool;ind, "Inplace reallocating {:?} to size {}.", block, new_size);
+
         /// Assertions...
         debug_assert!(self.find(&block) == ind, "Block is not inserted at the appropriate index.");
 
@@ -398,6 +404,9 @@ impl Bookkeeper {
     /// See [`free`](#method.free) for more information.
     #[inline]
     fn free_ind(&mut self, ind: usize, mut block: Block) {
+        // Logging.
+        log!(self.pool;ind, "Freeing {:?}.", block);
+
         // Short circuit in case of empty block.
         if block.is_empty() { return; }
 
@@ -411,7 +420,7 @@ impl Bookkeeper {
             let entry = &mut self.pool[ind];
 
             // Make some handy assertions.
-            #[cfg(features = "debug_tools")]
+            #[cfg(feature = "debug_tools")]
             assert!(entry != &mut block, "Double free.");
             debug_assert!(block.is_empty() || entry <= &mut block, "Block merged in the wrong \
                           direction.");
@@ -429,6 +438,9 @@ impl Bookkeeper {
     /// Extend the data segment.
     #[inline]
     fn brk(&self, size: usize, align: usize) -> (Block, Block, Block) {
+        // Logging.
+        log!(self.pool;self.pool.len(), "BRK'ing a block of size, {}, and alignment {}.", size, align);
+
         // Calculate the canonical size (extra space is allocated to limit the number of system calls).
         let brk_size = canonicalize_brk(size).checked_add(align).unwrap_or_else(|| self.oom());
 
@@ -458,6 +470,9 @@ impl Bookkeeper {
     /// This guarantees linearity so that the blocks will be adjacent.
     #[inline]
     fn double_push(&mut self, block_a: Block, block_b: Block) {
+        // Logging.
+        log!(self.pool;self.pool.len(), "Pushing {:?} and {:?}.", block_a, block_b);
+
         // Reserve extra elements.
         let len = self.pool.len();
         self.reserve(len + 2);
@@ -600,6 +615,9 @@ impl Bookkeeper {
     /// The insertion is now completed.
     #[inline]
     fn insert(&mut self, ind: usize, block: Block) {
+        // Logging.
+        log!(self.pool;ind, "Inserting block {:?}.", block);
+
         // Bound check.
         assert!(self.pool.len() >= ind, "Insertion out of bounds.");
 
@@ -663,7 +681,7 @@ impl Bookkeeper {
     #[inline]
     fn leave(&mut self, block: Block) -> Block {
         // Update the number of bytes allocated.
-        #[cfg(features = "debug_tools")]
+        #[cfg(feature = "debug_tools")]
         {
             self.allocated += block.size();
         }
@@ -679,7 +697,7 @@ impl Bookkeeper {
     #[inline]
     fn enter(&mut self, block: Block) -> Block {
         // Update the number of bytes allocated.
-        #[cfg(features = "debug_tools")]
+        #[cfg(feature = "debug_tools")]
         {
             self.allocated -= block.size();
         }
@@ -719,7 +737,7 @@ impl Bookkeeper {
     /// Check for memory leaks.
     ///
     /// This will ake sure that all the allocated blocks have been freed.
-    #[cfg(features = "debug_tools")]
+    #[cfg(feature = "debug_tools")]
     pub fn assert_no_leak(&self) {
         assert!(self.allocated == self.pool.capacity() * mem::size_of::<Block>(), "Not all blocks \
                 freed. Total allocated space is {} ({} free blocks).", self.allocated,
