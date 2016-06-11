@@ -330,7 +330,7 @@ impl Bookkeeper {
     fn alloc_fresh(&mut self, size: usize, align: usize) -> Block {
         // To avoid shenanigans with unbounded recursion and other stuff, we pre-reserve the
         // buffer.
-        self.reserve(2);
+        self.reserve_more(2);
 
         // BRK what you need.
         let (alignment_block, res, excessive) = self.brk(size, align);
@@ -492,7 +492,7 @@ impl Bookkeeper {
         debug_assert!(block_a <= block_b, "The first pushed block is not lower or equal to the second.");
 
         // Reserve extra elements.
-        self.reserve(2);
+        self.reserve_more(2);
 
         self.push_no_reserve(block_a);
         self.push_no_reserve(block_b);
@@ -526,7 +526,7 @@ impl Bookkeeper {
     /// This will ensure the capacity is at least `needed` greater than the current length,
     /// potentially reallocating the block pool.
     #[inline]
-    fn reserve(&mut self, needed: usize) {
+    fn reserve_more(&mut self, needed: usize) {
         let needed = self.pool.len() + needed;
         if needed > self.pool.capacity() {
             // TODO allow BRK-free non-inplace reservations.
@@ -663,7 +663,7 @@ impl Bookkeeper {
 
             elem.unwrap_or_else(|| {
                 // Reserve capacity.
-                self.reserve(1);
+                self.reserve_more(1);
 
                 // We default to the end of the pool.
                 self.pool.len()
