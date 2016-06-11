@@ -159,8 +159,9 @@ impl Bookkeeper {
         }).next() {
             let (res, excessive) = b.split(size);
 
-            // Mark the excessive space as free.
-            self.free_ind(n, excessive);
+            // Mark the excessive space as free. Since `b` was split and we push `excessive`, not
+            // `res`, we have index `n + 1` NOT `n`.
+            self.free_ind(n + 1, excessive);
             //   ^^^^ Important note to self: Do not replace the old block, it is already replaced
             //        by the alignment block. Better let `free_ind` handle that.
 
@@ -413,23 +414,38 @@ impl Bookkeeper {
         // Assertions...
         debug_assert!(self.find(&block) == ind, "Block is not inserted at the appropriate index.");
 
-        // Try to merge left, and then right.
-        if self.pool.is_empty() || {
+        {
+            // So, we want to work around some borrowck edginess...
+            let (before, after) = self.pool.split_at_mut(ind);
             // To avoid double bound checking and other shenanigans, we declare a variable holding our
             // entry's pointer.
-            let entry = &mut self.pool[ind];
+            let entry = &mut after[0];
 
-            // Make some handy assertions.
-            #[cfg(feature = "debug_tools")]
-            assert!(entry != &mut block, "Double free.");
-            debug_assert!(block.is_empty() || entry <= &mut block, "Block merged in the wrong \
-                          direction.");
+            // Try to merge it with the block to the right.
+            if entry.merge_right(&mut block).is_ok() {
+                // The merging succeeded. We proceed to try to close in the possible gap.
+                if ind != 0 {
+                    let _ = before[ind - 1].merge_right(entry);
+                }
 
-            entry.merge_right(&mut block).is_err()
-        } || ind == 0 || self.pool[ind - 1].merge_right(&mut block).is_err() {
-            // Since merge failed, we will have to insert it in a normal manner.
-            self.insert(ind, block);
+                // TODO fuck you rustc
+                // // Check consistency.
+                // self.check();
+
+                return;
+
+            // Dammit, let's try to merge left.
+            } else if ind != 0 && before[ind - 1].merge_right(entry).is_ok() {
+                // TODO fuck you rustc
+                // // Check consistency.
+                // self.check();
+
+                return;
+            }
         }
+
+        // Well, it failed, so we insert it the old-fashioned way.
+        self.insert(ind, block);
 
         // Check consistency.
         self.check();
@@ -554,7 +570,7 @@ impl Bookkeeper {
         };
 
         // Move left.
-        ind - self.pool.iter().skip(ind).rev().take_while(|x| x.is_empty()).count()
+        ind - self.pool.iter().skip(ind + 1).rev().take_while(|x| x.is_empty()).count()
     }
 
     /// Insert a block entry at some index.
@@ -631,8 +647,8 @@ impl Bookkeeper {
         if let Some((n, _)) = self.pool.iter().skip(ind).enumerate().filter(|&(_, x)| !x.is_empty()).next() {
             // Reserve capacity.
             {
-                let new_len = self.pool.len() + 1;
-                self.reserve(new_len);
+                let new_len = self.pool.len();
+                self.reserve(new_len + 1);
             }
 
             unsafe {

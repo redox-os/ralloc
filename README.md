@@ -218,3 +218,24 @@ fn main() {
 ### Safe SBRK
 
 ralloc provides a `sbrk`, which can be used safely without breaking the allocator.
+
+### Logging
+
+If you enable the `log` feature, you get detailed locking of the allocator, e.g.
+
+```
+|   : BRK'ing a block of size, 80, and alignment 8.            (at bookkeeper.rs:458)
+|   : Pushing 0x5578dacb2000[0x0] and 0x5578dacb2050[0xffb8].  (at bookkeeper.rs:490)
+|x  : Freeing 0x1[0x0].                                        (at bookkeeper.rs:409)
+x|  : BRK'ing a block of size, 4, and alignment 1.             (at bookkeeper.rs:458)
+x|  : Pushing 0x5578dacc2008[0x0] and 0x5578dacc200c[0xfffd].  (at bookkeeper.rs:490)
+x|x : Reallocating 0x5578dacc2008[0x4] to size 8 with align 1. (at bookkeeper.rs:272)
+x|x : Inplace reallocating 0x5578dacc2008[0x4] to size 8.      (at bookkeeper.rs:354)
+_|x : Freeing 0x5578dacb2058[0xffb0].                          (at bookkeeper.rs:409)
+_|x : Inserting block 0x5578dacb2058[0xffb0].                  (at bookkeeper.rs:635)
+```
+
+To the left, you can see the state of the block pool. `x` denotes a non-empty
+block, `_` denotes an empty block, and `|` denotes the cursor.
+
+The `a[b]` is a syntax for block on address `a` with size `b`.
