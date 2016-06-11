@@ -579,7 +579,12 @@ impl Bookkeeper {
     /// right. If all places to the right is occupied, it will reserve additional space to the
     /// block pool.
     ///
+    /// # Panics
+    ///
+    /// Panics on when `ind` is greater than the block pool's length.
+    ///
     /// # Example
+    ///
     /// We want to insert the block denoted by the tildes into our list. Perform a binary search to
     /// find where insertion is appropriate.
     ///
@@ -644,30 +649,33 @@ impl Bookkeeper {
         debug_assert!(!block.is_empty(), "Inserting an empty block.");
 
         // Find the next gap, where a used block were.
-        if let Some((n, _)) = self.pool.iter().skip(ind).enumerate().filter(|&(_, x)| !x.is_empty()).next() {
-            // Reserve capacity.
-            {
-                let new_len = self.pool.len();
-                self.reserve(new_len + 1);
-            }
+        let n = {
+            // The element we serach for.
+            let elem = self.pool
+                .iter()
+                .skip(ind)
+                .enumerate()
+                .filter(|&(_, x)| !x.is_empty())
+                .next()
+                .map(|(n, _)| n);
 
-            unsafe {
-                // Memmove the elements.
-                ptr::copy(self.pool.get_unchecked(ind) as *const Block,
-                          self.pool.get_unchecked_mut(ind + 1) as *mut Block, self.pool.len() - n);
+            elem.unwrap_or_else(|| {
+                // Reserve capacity.
+                let len = self.pool.len();
+                self.reserve(len + 1);
 
-                // Set the element.
-                *self.pool.get_unchecked_mut(ind) = block;
-            }
-        } else {
-            // Calculate the entry where we will place the block.
-            let mut ent = unsafe { self.pool.get_unchecked_mut(ind) };
+                // We default to the end of the pool.
+                len
+            })
+        };
 
-            // Catch dumb logic bugs.
-            debug_assert!(ent.is_empty(), "Replaced block is not empty!");
+        unsafe {
+            // Memmove the elements.
+            ptr::copy(self.pool.get_unchecked(ind) as *const Block,
+                      self.pool.get_unchecked_mut(ind + 1) as *mut Block, self.pool.len() - n);
 
-            // Replace the empty entry with our block.
-            *ent = block;
+            // Set the element.
+            *self.pool.get_unchecked_mut(ind) = block;
         }
 
         // Check consistency.
