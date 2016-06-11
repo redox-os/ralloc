@@ -479,8 +479,8 @@ impl Bookkeeper {
 
     /// Push two blocks to the block pool.
     ///
-    /// This will append a block entry to the end of the block pool (and merge if possible). Make
-    /// sure that this entry has a value higher than any of the elements in the list, to keep it
+    /// This will append the blocks to the end of the block pool (and merge if possible). Make sure
+    /// that these blocks has a value higher than any of the elements in the list, to keep it
     /// sorted.
     ///
     /// This guarantees linearity so that the blocks will be adjacent.
@@ -488,6 +488,9 @@ impl Bookkeeper {
     fn double_push(&mut self, block_a: Block, block_b: Block) {
         // Logging.
         log!(self.pool;self.pool.len(), "Pushing {:?} and {:?}.", block_a, block_b);
+
+        // Catch stupid bug...
+        debug_assert!(block_a <= block_b, "The first pushed block is not lower or equal to the second.");
 
         // Reserve extra elements.
         let len = self.pool.len();

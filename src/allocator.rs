@@ -102,5 +102,3 @@ impl Allocator {
         self.inner.assert_no_leak();
     }
 }
-
-impl Leak for Allocator {}

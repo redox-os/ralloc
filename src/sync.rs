@@ -1,7 +1,5 @@
 //! Synchronization primitives.
 
-use prelude::*;
-
 use sys;
 
 use core::cell::UnsafeCell;
@@ -13,7 +11,7 @@ use core::ops;
 /// This assures that only one holds mutability of the inner value. To get the inner value, you
 /// need acquire the "lock". If you try to lock it while a lock is already held elsewhere, it will
 /// block the thread until the lock is released.
-pub struct Mutex<T: Leak> {
+pub struct Mutex<T> {
     /// The inner value.
     inner: UnsafeCell<T>,
     /// The lock boolean.
@@ -25,19 +23,19 @@ pub struct Mutex<T: Leak> {
 /// A mutex guard.
 ///
 /// This acts as the lock.
-pub struct MutexGuard<'a, T: 'a + Leak> {
+pub struct MutexGuard<'a, T: 'a> {
     mutex: &'a Mutex<T>,
 }
 
 /// Release the mutex.
-impl<'a, T: Leak> Drop for MutexGuard<'a, T> {
+impl<'a, T> Drop for MutexGuard<'a, T> {
     #[inline]
     fn drop(&mut self) {
         self.mutex.locked.store(false, atomic::Ordering::SeqCst);
     }
 }
 
-impl<'a, T: Leak> ops::Deref for MutexGuard<'a, T> {
+impl<'a, T> ops::Deref for MutexGuard<'a, T> {
     type Target = T;
 
     #[inline]
@@ -48,7 +46,7 @@ impl<'a, T: Leak> ops::Deref for MutexGuard<'a, T> {
     }
 }
 
-impl<'a, T: Leak> ops::DerefMut for MutexGuard<'a, T> {
+impl<'a, T> ops::DerefMut for MutexGuard<'a, T> {
     fn deref_mut(&mut self) -> &mut T {
         unsafe {
             &mut *self.mutex.inner.get()
@@ -56,7 +54,7 @@ impl<'a, T: Leak> ops::DerefMut for MutexGuard<'a, T> {
     }
 }
 
-impl<T: Leak> Mutex<T> {
+impl<T> Mutex<T> {
     /// Create a new mutex with some inner value.
     #[inline]
     pub const fn new(inner: T) -> Mutex<T> {
@@ -87,8 +85,8 @@ impl<T: Leak> Mutex<T> {
     }
 }
 
-unsafe impl<T: Send + Leak> Send for Mutex<T> {}
-unsafe impl<T: Send + Leak> Sync for Mutex<T> {}
+unsafe impl<T: Send> Send for Mutex<T> {}
+unsafe impl<T: Send> Sync for Mutex<T> {}
 
 #[cfg(test)]
 mod test {
