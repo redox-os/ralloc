@@ -756,6 +756,9 @@ impl Bookkeeper {
                 // Set the variable tracking the previous block.
                 prev = i;
             }
+
+            // Check for trailing empty blocks.
+            assert!(!self.pool.last().unwrap().is_empty(), "Trailing empty blocks.");
         }
     }
 
