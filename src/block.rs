@@ -25,6 +25,7 @@ use core::{ptr, cmp, mem, fmt};
 ///
 /// Accessing it through an immutable reference does not break these guarantees. That is, you are
 /// not able to read/mutate without acquiring a _mutable_ reference.
+#[must_use]
 pub struct Block {
     /// The size of this block, in bytes.
     size: usize,

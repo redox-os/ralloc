@@ -20,40 +20,6 @@ pub struct Mutex<T> {
     locked: AtomicBool,
 }
 
-/// A mutex guard.
-///
-/// This acts as the lock.
-pub struct MutexGuard<'a, T: 'a> {
-    mutex: &'a Mutex<T>,
-}
-
-/// Release the mutex.
-impl<'a, T> Drop for MutexGuard<'a, T> {
-    #[inline]
-    fn drop(&mut self) {
-        self.mutex.locked.store(false, atomic::Ordering::SeqCst);
-    }
-}
-
-impl<'a, T> ops::Deref for MutexGuard<'a, T> {
-    type Target = T;
-
-    #[inline]
-    fn deref(&self) -> &T {
-        unsafe {
-            &*self.mutex.inner.get()
-        }
-    }
-}
-
-impl<'a, T> ops::DerefMut for MutexGuard<'a, T> {
-    fn deref_mut(&mut self) -> &mut T {
-        unsafe {
-            &mut *self.mutex.inner.get()
-        }
-    }
-}
-
 impl<T> Mutex<T> {
     /// Create a new mutex with some inner value.
     #[inline]
@@ -81,6 +47,42 @@ impl<T> Mutex<T> {
 
         MutexGuard {
             mutex: self,
+        }
+    }
+}
+
+/// A mutex guard.
+///
+/// This acts as the lock.
+#[must_use]
+pub struct MutexGuard<'a, T: 'a> {
+    /// The parent mutex.
+    mutex: &'a Mutex<T>,
+}
+
+/// Release the mutex.
+impl<'a, T> Drop for MutexGuard<'a, T> {
+    #[inline]
+    fn drop(&mut self) {
+        self.mutex.locked.store(false, atomic::Ordering::SeqCst);
+    }
+}
+
+impl<'a, T> ops::Deref for MutexGuard<'a, T> {
+    type Target = T;
+
+    #[inline]
+    fn deref(&self) -> &T {
+        unsafe {
+            &*self.mutex.inner.get()
+        }
+    }
+}
+
+impl<'a, T> ops::DerefMut for MutexGuard<'a, T> {
+    fn deref_mut(&mut self) -> &mut T {
+        unsafe {
+            &mut *self.mutex.inner.get()
         }
     }
 }
