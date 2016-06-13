@@ -564,15 +564,21 @@ impl Bookkeeper {
     ///
     /// It is guaranteed that no block left to the returned value, satisfy the above condition.
     #[inline]
-    fn find(&self, block: &Block) -> usize {
+    fn find(&mut self, block: &Block) -> usize {
         // TODO optimize this function.
 
         let ind = match self.pool.binary_search(block) {
             Ok(x) | Err(x) => x,
         };
+        let len = self.pool.len();
 
         // Move left.
-        ind - self.pool.iter().skip(ind + 1).rev().take_while(|x| x.is_empty()).count()
+        ind - self.pool.iter_mut()
+            .rev()
+            .skip(len - ind)
+            .take_while(|x| x.is_empty())
+            .map(|x| *x = block.empty_left())
+            .count()
     }
 
     /// Insert a block entry at some index.
