@@ -237,7 +237,7 @@ impl Ord for Block {
 impl cmp::PartialEq for Block {
     #[inline]
     fn eq(&self, other: &Block) -> bool {
-        self.size == other.size && *self.ptr == *other.ptr
+        *self.ptr == *other.ptr
     }
 }
 
@@ -267,7 +267,7 @@ mod test {
         assert!(lorem < rest);
 
         assert_eq!(lorem, lorem);
-        assert!(rest.is_empty());
+        assert!(!rest.is_empty());
         assert!(lorem.align(2).unwrap().1.aligned_to(2));
         assert!(rest.align(15).unwrap().1.aligned_to(15));
         assert_eq!(*Pointer::from(lorem) as usize + 5, *Pointer::from(rest) as usize);
@@ -289,6 +289,7 @@ mod test {
     }
 
     #[test]
+    #[cfg(not(feature = "libc_write"))]
     #[should_panic]
     fn test_oob() {
         let arr = b"lorem";

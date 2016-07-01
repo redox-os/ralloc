@@ -147,23 +147,37 @@ impl Bookkeeper {
     /// A block representing the marked area is then returned.
     pub fn alloc(&mut self, size: usize, align: usize) -> Block {
         // TODO: scan more intelligently.
+        log!(self.pool;0, "Allocating {} with align {}", size, align);
         if let Some((n, b)) = self.pool.iter_mut().enumerate().filter_map(|(n, i)| {
-            // Try to split at the aligner.
-            i.align(align).and_then(|(a, b)| {
-                if b.size() >= size {
-                    // Override the old block.
-                    *i = a;
-                    Some((n, b))
-                } else { None }
-            })
+            if i.size() >= size {
+                // Try to split at the aligner.
+                i.align(align).and_then(|(mut a, mut b)| {
+                    if b.size() >= size {
+                        // Override the old block.
+                        *i = a;
+                        Some((n, b))
+                    } else {
+                        // Put the split block back together and place it back in its spot
+                        a.merge_right(&mut b).unwrap();
+                        *i = a;
+                        None
+                    }
+                })
+            } else {
+                None
+            }
         }).next() {
+            if self.pool[n].is_empty() {
+                let _ = self.pool.remove_at(n); //for empty alignment invariant
+            }
+
             let (res, excessive) = b.split(size);
 
-            // Mark the excessive space as free. Since `b` was split and we push `excessive`, not
-            // `res`, we have index `n + 1` NOT `n`.
-            self.free_ind(n + 1, excessive);
-            //   ^^^^ Important note to self: Do not replace the old block, it is already replaced
-            //        by the alignment block. Better let `free_ind` handle that.
+            // Mark the excessive space as free.
+            // There are many corner cases that make knowing where to insert it difficult
+            // so we search instead.
+            let (l,r) = self.find_both(&excessive);
+            self.free_ind(l, r, excessive);
 
             // Check consistency.
             self.check();
@@ -225,11 +239,13 @@ impl Bookkeeper {
     #[inline]
     pub fn free(&mut self, block: Block) {
         // "Enter" the allocator.
+        log!(self.pool;0, "free");
         let block = self.enter(block);
+        self.reserve_more(1);
 
-        let ind = self.find(&block);
+        let (l,r) = self.find_both(&block);
 
-        self.free_ind(ind, block);
+        self.free_ind(l, r, block);
     }
 
     /// Reallocate memory.
@@ -266,7 +282,8 @@ impl Bookkeeper {
     /// allocated list.
     pub fn realloc(&mut self, block: Block, new_size: usize, align: usize) -> Block {
         // Find the index.
-        let ind = self.find(&block);
+        log!(self.pool;0, "realloc");
+        let (ind, ind_right) = self.find_both(&block);
 
         // Logging.
         log!(self.pool;ind, "Reallocating {:?} to size {} with align {}.", block, new_size, align);
@@ -274,7 +291,7 @@ impl Bookkeeper {
         // "Leave" the allocator.
         let block = self.enter(block);
         // Try to do an inplace reallocation.
-        match self.realloc_inplace_ind(ind, block, new_size) {
+        match self.realloc_inplace_ind(ind, ind_right, block, new_size) {
             Ok(block) => self.leave(block),
             Err(block) => {
                 // Reallocation cannot be done inplace.
@@ -286,7 +303,9 @@ impl Bookkeeper {
                 block.copy_to(&mut res);
 
                 // Free the old block.
-                self.free_ind(ind, block);
+                // Allocation may have moved insertion so we search again.
+                let (ind, ind_right) = self.find_both(&block);
+                self.free_ind(ind, ind_right,  block);
 
                 // Check consistency.
                 self.check();
@@ -311,8 +330,9 @@ impl Bookkeeper {
     /// [`realloc_inplace_ind`](#method.realloc_inplace_ind.html).
     #[inline]
     pub fn realloc_inplace(&mut self, block: Block, new_size: usize) -> Result<Block, Block> {
-        let ind = self.find(&block);
-        let res = self.realloc_inplace_ind(ind, block, new_size);
+        log!(self.pool;0, "realloc_inplace");
+        let (ind, ind_right) = self.find_both(&block);
+        let res = self.realloc_inplace_ind(ind, ind_right, block, new_size);
 
         // Check consistency.
         debug_assert!(res.as_ref().ok().map_or(true, |x| x.size() == new_size), "Requested space \
@@ -328,6 +348,7 @@ impl Bookkeeper {
     /// The returned pointer is guaranteed to be aligned to `align`.
     #[inline]
     fn alloc_fresh(&mut self, size: usize, align: usize) -> Block {
+        log!(self.pool;0, "alloc_fresh");
         // To avoid shenanigans with unbounded recursion and other stuff, we pre-reserve the
         // buffer.
         self.reserve_more(2);
@@ -348,20 +369,21 @@ impl Bookkeeper {
     /// Reallocate a block on a know index inplace.
     ///
     /// See [`realloc_inplace_ind`](#method.realloc_inplace.html) for more information.
-    fn realloc_inplace_ind(&mut self, ind: usize, mut block: Block, new_size: usize) -> Result<Block, Block> {
+    fn realloc_inplace_ind(&mut self, ind: usize, ind_right: usize, mut block: Block, new_size: usize) -> Result<Block, Block> {
         // Logging.
-        log!(self.pool;ind, "Inplace reallocating {:?} to size {}.", block, new_size);
+        log!(self.pool;ind, "Try inplace reallocating {:?} to size {}.", block, new_size);
 
         /// Assertions...
         debug_assert!(self.find(&block) == ind, "Block is not inserted at the appropriate index.");
 
         if new_size <= block.size() {
             // Shrink the block.
+            log!(self.pool;ind, "  Shrink.");
 
             // Split the block in two segments, the main segment and the excessive segment.
             let (block, excessive) = block.split(new_size);
             // Free the excessive segment.
-            self.free_ind(ind, excessive);
+            self.free_ind(ind, ind_right, excessive);
 
             // Make some assertions to avoid dumb bugs.
             debug_assert!(block.size() == new_size, "Block wasn't shrinked properly.");
@@ -372,22 +394,32 @@ impl Bookkeeper {
             return Ok(block);
 
             // We check if `ind` is the end of the array.
-        } else if let Some(entry) = self.pool.get_mut(ind + 1) {
+        } else {
+            let mut mergable = false;
+            if let Some(entry) = self.pool.get_mut(ind_right) {
+                mergable = entry.size() + block.size() >= new_size && block.left_to(entry);
+            }
             // Note that we are sure that no segments in the array are adjacent (unless they have size
             // 0). This way we know that we will, at maximum, need one and only one block for extending
             // the current block.
-            if entry.size() + block.size() >= new_size && block.merge_right(entry).is_ok() {
+            if mergable {
+                log!(self.pool;ind, "  Merge");
+                block.merge_right(&mut self.pool.remove_at(ind_right)).unwrap();
                 // Merge succeeded.
 
                 // Place the excessive block back.
                 let (res, excessive) = block.split(new_size);
-                *entry = excessive;
+                // remove_at may have shortened the vec
+                if ind == self.pool.len() {
+                    self.push_no_reserve(excessive);
+                } else if !excessive.is_empty() {
+                    self.pool[ind] = excessive;
+                }
                 // Block will still not be adjacent, due to `excessive` being guaranteed to not be
                 // adjacent to the next block.
 
-                // TODO, damn you borrowck
                 // Run a consistency check.
-                // self.check();
+                self.check();
 
                 // TODO, drop excessive space
                 return Ok(res);
@@ -403,44 +435,35 @@ impl Bookkeeper {
     ///
     /// See [`free`](#method.free) for more information.
     #[inline]
-    fn free_ind(&mut self, ind: usize, mut block: Block) {
+    fn free_ind(&mut self, ind: usize, right_ind: usize, mut block: Block) {
         // Logging.
         log!(self.pool;ind, "Freeing {:?}.", block);
 
         // Short circuit in case of empty block.
         if block.is_empty() { return; }
 
+        if ind == self.pool.len() {
+            self.push_no_reserve(block);
+            return;
+        }
+
         // Assertions...
         debug_assert!(self.find(&block) == ind, "Block is not inserted at the appropriate index.");
 
-        {
-            // So, we want to work around some borrowck edginess...
-            let (before, after) = self.pool.split_at_mut(ind);
-            // To avoid double bound checking and other shenanigans, we declare a variable holding our
-            // entry's pointer.
-            let entry = &mut after[0];
-
-            // Try to merge it with the block to the right.
-            if entry.merge_right(&mut block).is_ok() {
-                // The merging succeeded. We proceed to try to close in the possible gap.
-                if ind != 0 {
-                    let _ = before[ind - 1].merge_right(entry);
-                }
-
-                // TODO fuck you rustc
-                // // Check consistency.
-                // self.check();
-
-                return;
-
-            // Dammit, let's try to merge left.
-            } else if ind != 0 && before[ind - 1].merge_right(entry).is_ok() {
-                // TODO fuck you rustc
-                // // Check consistency.
-                // self.check();
-
+        // Try to merge it with the block to the right.
+        if right_ind < self.pool.len() && block.left_to(&self.pool[right_ind]) {
+            block.merge_right(&mut self.pool.remove_at(right_ind)).unwrap();
+            // The merging succeeded. We proceed to try to close in the possible gap.
+            if ind != 0 && self.pool[ind-1].merge_right(&mut block).is_ok() {
+                self.check();
                 return;
             }
+        // Dammit, let's try to merge left.
+        } else if ind != 0 && self.pool[ind - 1].merge_right(&mut block).is_ok() {
+            // Check consistency.
+            self.check();
+
+            return;
         }
 
         // Well, it failed, so we insert it the old-fashioned way.
@@ -501,6 +524,7 @@ impl Bookkeeper {
     /// Push an element without reserving.
     fn push_no_reserve(&mut self, mut block: Block) {
         // Short-circuit in case on empty block.
+        log!(self.pool;self.pool.len(), "Pushing {:?}", block);
         if !block.is_empty() {
             // We will try to simply merge it with the last block.
             if let Some(x) = self.pool.last_mut() {
@@ -527,6 +551,7 @@ impl Bookkeeper {
     /// potentially reallocating the block pool.
     #[inline]
     fn reserve_more(&mut self, needed: usize) {
+        log!(self.pool;self.pool.len(), "reserving {} past {}, cap {}", needed, self.pool.len(), self.pool.capacity());
         let needed = self.pool.len() + needed;
         if needed > self.pool.capacity() {
             // TODO allow BRK-free non-inplace reservations.
@@ -567,6 +592,7 @@ impl Bookkeeper {
     fn find(&mut self, block: &Block) -> usize {
         // TODO optimize this function.
 
+        log!(self.pool;0, "find");
         let ind = match self.pool.binary_search(block) {
             Ok(x) | Err(x) => x,
         };
@@ -577,8 +603,41 @@ impl Bookkeeper {
             .rev()
             .skip(len - ind)
             .take_while(|x| x.is_empty())
-            .map(|x| *x = block.empty_left())
             .count()
+    }
+
+    /// Perform a binary search to find the appropriate place where the block can be insert or is
+    /// located.
+    ///
+    /// It is guaranteed that no block left to the returned value, satisfy the above condition.
+    #[inline]
+    fn find_both(&mut self, block: &Block) -> (usize, usize) {
+        // TODO optimize this function.
+
+        log!(self.pool;0, "find_both");
+        let mut left_ind = match self.pool.binary_search(block) {
+            Ok(x) | Err(x) => x,
+        };
+
+        let len = self.pool.len();
+
+        // Move left.
+        left_ind -= self.pool.iter_mut()
+            .rev()
+            .skip(len - left_ind)
+            .take_while(|x| x.is_empty())
+            .count();
+
+        let mut right_ind = match self.pool.binary_search(&block.empty_right()) {
+            Ok(x) | Err(x) => x,
+        };
+
+        // Move right.
+        right_ind += self.pool.iter()
+            .skip(right_ind)
+            .take_while(|x| x.is_empty())
+            .count();
+        (left_ind, right_ind)
     }
 
     /// Insert a block entry at some index.
@@ -651,19 +710,19 @@ impl Bookkeeper {
         assert!(self.pool.len() >= ind, "Insertion out of bounds.");
 
         // Some assertions...
-        debug_assert!(self.pool.is_empty() || block >= self.pool[ind + 1], "Inserting at {} will \
-                      make the list unsorted.", ind);
+        debug_assert!(self.pool.len() <= ind || block <= self.pool[ind],
+                      "Inserting at {} will make the list unsorted.", ind);
         debug_assert!(self.find(&block) == ind, "Block is not inserted at the appropriate index.");
         debug_assert!(!block.is_empty(), "Inserting an empty block.");
 
         // Find the next gap, where a used block were.
         let n = {
-            // The element we serach for.
+            // The element we search for.
             let elem = self.pool
                 .iter()
                 .skip(ind)
                 .enumerate()
-                .filter(|&(_, x)| !x.is_empty())
+                .filter(|&(_, x)| x.is_empty())
                 .next()
                 .map(|(n, _)| n);
 
@@ -672,17 +731,21 @@ impl Bookkeeper {
                 self.reserve_more(1);
 
                 // We default to the end of the pool.
-                self.pool.len()
+                self.pool.len() - ind
             })
         };
-
+        log!(self.pool;ind, "moving {}", n);
         unsafe {
             // Memmove the elements.
             ptr::copy(self.pool.get_unchecked(ind) as *const Block,
-                      self.pool.get_unchecked_mut(ind + 1) as *mut Block, self.pool.len() - n);
+                      self.pool.get_unchecked_mut(ind + 1) as *mut Block, n);
 
             // Set the element.
             *self.pool.get_unchecked_mut(ind) = block;
+        }
+        if ind + n == self.pool.len() {
+            // We moved a block into reserved memory but outside of the vec's bounds
+            self.pool.grow();
         }
 
         // Check consistency.
@@ -749,20 +812,28 @@ impl Bookkeeper {
     /// 2. No blocks are adjacent.
     #[cfg(debug_assertions)]
     fn check(&self) {
-        if let Some(x) = self.pool.first() {
-            let mut prev = x;
-            for (n, i) in self.pool.iter().enumerate().skip(1) {
+        log!(self.pool;0, "Checking...");
+        let mut it = self.pool.iter().enumerate().rev();
+        if let Some((_,x)) = it.next() {
+            // Make sure there are no trailing empty blocks
+            assert!(!x.is_empty());
+            let mut next = x;
+            for (n, i) in it {
                 // Check if sorted.
-                assert!(i >= prev, "The block pool is not sorted at index, {} ({:?} < {:?})", n, i,
-                        prev);
+                assert!(next >= i, "The block pool is not sorted at index, {} ({:?} < {:?})", n, next,
+                        i);
                 // Make sure no blocks are adjacent.
-                assert!(!prev.left_to(i) || i.is_empty(), "Adjacent blocks at index, {} ({:?} and \
-                        {:?})", n, i, prev);
+                assert!(!i.left_to(next) || i.is_empty(), "Adjacent blocks at index, {} ({:?} and \
+                        {:?})", n, i, next);
+                // Make sure an empty block has the same address as its right neighbor
+                assert!(!i.is_empty() || i == next, "Empty block not aligned to right neighbor \
+                        at index {} ({:?} and {:?})", n, i, next);
 
                 // Set the variable tracking the previous block.
-                prev = i;
+                next = i;
             }
         }
+        log!(self.pool;0, "Check ok!");
     }
 
     /// Check for memory leaks.
