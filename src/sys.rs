@@ -1,14 +1,9 @@
 //! System primitives.
 
+extern crate ralloc_shim;
+
 #[cfg(not(feature = "unsafe_no_brk_lock"))]
 use sync;
-
-mod symbols {
-    extern {
-        pub fn sched_yield() -> isize;
-        pub fn sbrk(diff: isize) -> *mut u8;
-    }
-}
 
 /// The BRK mutex.
 ///
@@ -27,7 +22,7 @@ pub fn sbrk(n: isize) -> Result<*mut u8, ()> {
     let _guard = BRK_MUTEX.lock();
 
     unsafe {
-        let brk = symbols::sbrk(n as isize);
+        let brk = ralloc_shim::sbrk(n);
         if brk as usize == !0 {
             Err(())
         } else {
@@ -38,7 +33,7 @@ pub fn sbrk(n: isize) -> Result<*mut u8, ()> {
 
 /// Cooperatively gives up a timeslice to the OS scheduler.
 pub fn yield_now() {
-    assert_eq!(unsafe { symbols::sched_yield() }, 0);
+    assert_eq!(unsafe { ralloc_shim::sched_yield() }, 0);
 }
 
 #[cfg(test)]
