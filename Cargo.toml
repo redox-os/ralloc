@@ -12,6 +12,9 @@ readme = "README.md"
 keywords = ["alloc", "malloc", "allocator", "ralloc", "redox"]
 license = "MIT"
 
+[dependencies]
+ralloc_shim = { path="shim" }
+
 [dependencies.clippy]
 git = "https://github.com/Manishearth/rust-clippy.git"
 optional = true
@@ -26,7 +29,7 @@ debug-assertions = false
 codegen-units = 1
 
 [features]
-default = ["allocator", "clippy"]
+default = ["allocator"] #clippy
 
 allocator = []
 debug_tools = []

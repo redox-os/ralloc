@@ -6,7 +6,7 @@ use std::thread;
 fn test() {
     let mut join = Vec::new();
 
-    for _ in 0..0xFFFF {
+    for _ in 0..10000 {
         let bx: Box<u64> = Box::new(0x11FE15C001);
 
         join.push(thread::spawn(move || {

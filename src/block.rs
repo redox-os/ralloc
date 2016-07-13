@@ -64,6 +64,24 @@ impl Block {
         }
     }
 
+    /// Create an empty block representing the left edge of this block
+    #[inline]
+    pub fn empty_left(&self) -> Block {
+        Block {
+            size: 0,
+            ptr: unsafe { Pointer::new(*self.ptr) },
+        }
+    }
+
+    /// Create an empty block representing the right edge of this block
+    #[inline]
+    pub fn empty_right(&self) -> Block {
+        Block {
+            size: 0,
+            ptr: unsafe { Pointer::new(*self.ptr).offset(self.size as isize) },
+        }
+    }
+
     /// Merge this block with a block to the right.
     ///
     /// This will simply extend the block, adding the size of the block, and then set the size to
@@ -220,7 +238,7 @@ impl Ord for Block {
 impl cmp::PartialEq for Block {
     #[inline]
     fn eq(&self, other: &Block) -> bool {
-        self.size == other.size && *self.ptr == *other.ptr
+        *self.ptr == *other.ptr
     }
 }
 
@@ -250,7 +268,7 @@ mod test {
         assert!(lorem < rest);
 
         assert_eq!(lorem, lorem);
-        assert!(rest.is_empty());
+        assert!(!rest.is_empty());
         assert!(lorem.align(2).unwrap().1.aligned_to(2));
         assert!(rest.align(15).unwrap().1.aligned_to(15));
         assert_eq!(*Pointer::from(lorem) as usize + 5, *Pointer::from(rest) as usize);
@@ -272,6 +290,7 @@ mod test {
     }
 
     #[test]
+    #[cfg(not(feature = "libc_write"))]
     #[should_panic]
     fn test_oob() {
         let arr = b"lorem";

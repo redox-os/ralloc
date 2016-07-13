@@ -68,14 +68,14 @@ impl<T: Leak> Vec<T> {
         self.check(&block);
 
         let old = mem::replace(self, Vec::new());
-        unsafe {
-            ptr::copy_nonoverlapping(*self.ptr, *old.ptr, self.len);
-        }
 
         // Update the fields of `self`.
         self.cap = new_cap;
         self.ptr = unsafe { Pointer::new(*Pointer::from(block) as *mut T) };
         self.len = old.len;
+        unsafe {
+            ptr::copy_nonoverlapping(*old.ptr, *self.ptr, old.len);
+        }
 
         Block::from(old)
     }
@@ -105,6 +105,11 @@ impl<T: Leak> Vec<T> {
         }
     }
 
+    pub fn grow(&mut self) {
+        if self.len < self.cap {
+            self.len += 1;
+        }
+    }
     /// Check the validity of a block with respect to the vector.
     ///
     /// Blocks not passing this checks might lead to logic errors when used as buffer for the
@@ -117,6 +122,26 @@ impl<T: Leak> Vec<T> {
                       block's size.");
         debug_assert!(self.len <= block.size() / mem::size_of::<T>(), "Block not large enough to \
                       cover the vector.");
+    }
+}
+
+impl Vec<Block> {
+    pub fn remove_at(&mut self, index: usize) -> Block {
+        assert!(index < self.len);
+        if index == self.len - 1 {
+            let ret = self[index].pop();
+            self.len -= self.iter().rev().take_while(|x| x.is_empty()).count();
+            ret
+        } else {
+            let empty = self[index+1].empty_left();
+            let empty2 = empty.empty_left();
+            let ret = mem::replace(&mut self[index], empty);
+            let skip = self.len - index;
+            for place in self.iter_mut().rev().skip(skip).take_while(|x| x.is_empty()) {
+                *place = empty2.empty_left();
+            }
+            ret
+        }
     }
 }
 
