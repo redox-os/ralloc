@@ -1,6 +1,9 @@
+//! Symbols and externs that ralloc depends on.
+
 #![crate_name="ralloc_shim"]
 #![crate_type="lib"]
 #![feature(lang_items)]
+#![warn(missing_docs)]
 #![no_std]
 
 extern "C" {

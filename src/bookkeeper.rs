@@ -168,7 +168,7 @@ impl Bookkeeper {
             }
         }).next() {
             if self.pool[n].is_empty() {
-                let _ = self.pool.remove_at(n); //for empty alignment invariant
+                let _ = self.remove_at(n); //for empty alignment invariant
             }
 
             let (res, excessive) = b.split(size);
@@ -404,7 +404,7 @@ impl Bookkeeper {
             // the current block.
             if mergable {
                 log!(self.pool;ind, "  Merge");
-                block.merge_right(&mut self.pool.remove_at(ind_right)).unwrap();
+                block.merge_right(&mut self.remove_at(ind_right)).unwrap();
                 // Merge succeeded.
 
                 // Place the excessive block back.
@@ -452,7 +452,7 @@ impl Bookkeeper {
 
         // Try to merge it with the block to the right.
         if right_ind < self.pool.len() && block.left_to(&self.pool[right_ind]) {
-            block.merge_right(&mut self.pool.remove_at(right_ind)).unwrap();
+            block.merge_right(&mut self.remove_at(right_ind)).unwrap();
             // The merging succeeded. We proceed to try to close in the possible gap.
             if ind != 0 && self.pool[ind-1].merge_right(&mut block).is_ok() {
                 self.check();
@@ -750,6 +750,34 @@ impl Bookkeeper {
 
         // Check consistency.
         self.check();
+    }
+
+    /// Remove a block.
+    fn remove_at(&mut self, ind: usize) -> Block {
+        if ind == self.pool.len() - 1 {
+            let ret = self.pool[ind].pop();
+            // Make sure there are no trailing empty blocks.
+            let new_len = self.pool.len() - self.pool.iter().rev().take_while(|x| x.is_empty()).count();
+
+            // Truncate the vector.
+            self.pool.truncate(new_len);
+            ret
+        } else {
+            // Calculate the upper and lower bound
+            let empty = self.pool[ind + 1].empty_left();
+            let empty2 = empty.empty_left();
+
+            // Replace the block at `ind` with the left empty block from `ind + 1`.
+            let ret = mem::replace(&mut self.pool[ind], empty);
+            // Iterate over the pool from `ind` and down.
+            let skip = self.pool.len() - ind;
+            for place in self.pool.iter_mut().rev().skip(skip).take_while(|x| x.is_empty()) {
+                // Empty the blocks.
+                *place = empty2.empty_left();
+            }
+
+            ret
+        }
     }
 
     /// Call the OOM handler.

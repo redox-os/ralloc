@@ -105,6 +105,15 @@ impl<T: Leak> Vec<T> {
         }
     }
 
+    /// Truncate this vector.
+    ///
+    /// This is O(1).
+    pub fn truncate(&mut self, len: usize) {
+        assert!(len <= self.len, "Out of bound.");
+
+        self.len = len;
+    }
+
     pub fn grow(&mut self) {
         if self.len < self.cap {
             self.len += 1;
@@ -122,26 +131,6 @@ impl<T: Leak> Vec<T> {
                       block's size.");
         debug_assert!(self.len <= block.size() / mem::size_of::<T>(), "Block not large enough to \
                       cover the vector.");
-    }
-}
-
-impl Vec<Block> {
-    pub fn remove_at(&mut self, index: usize) -> Block {
-        assert!(index < self.len);
-        if index == self.len - 1 {
-            let ret = self[index].pop();
-            self.len -= self.iter().rev().take_while(|x| x.is_empty()).count();
-            ret
-        } else {
-            let empty = self[index+1].empty_left();
-            let empty2 = empty.empty_left();
-            let ret = mem::replace(&mut self[index], empty);
-            let skip = self.len - index;
-            for place in self.iter_mut().rev().skip(skip).take_while(|x| x.is_empty()) {
-                *place = empty2.empty_left();
-            }
-            ret
-        }
     }
 }
 

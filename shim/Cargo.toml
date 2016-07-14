@@ -1,4 +1,13 @@
 [package]
 name = "ralloc_shim"
 version = "0.1.0"
-authors = ["Jeremy Soller <jackpot51@gmail.com>"]
+authors = ["Jeremy Soller <jackpot51@gmail.com>", "Ticki"]
+
+[profile.release]
+panic = "abort"
+opt-level = 3
+debug = false
+rpath = false
+lto = true
+debug-assertions = false
+codegen-units = 1
