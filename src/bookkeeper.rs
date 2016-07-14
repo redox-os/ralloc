@@ -540,7 +540,7 @@ impl Bookkeeper {
             let res = self.pool.push(block);
 
             // Make some assertions.
-            debug_assert!(res.is_ok(), "Push failed (buffer filled).");
+            debug_assert!(res.is_ok(), "Push failed (buffer full).");
         }
         self.check();
     }
@@ -734,18 +734,29 @@ impl Bookkeeper {
                 self.pool.len() - ind
             })
         };
-        log!(self.pool;ind, "moving {}", n);
+
+        // Log the operation.
+        log!(self.pool;ind, "Moving {}", n);
+
         unsafe {
+            // TODO clean this mess up.
+
+            if ind + n == self.pool.len() {
+                // We will move a block into reserved memory but outside of the vec's bounds. For
+                // that reason, we push an uninitialized element to extend the length, which will
+                // be assigned in the memcpy.
+                let res = self.pool.push(mem::uninitialized());
+
+                // Just some assertions...
+                debug_assert!(res.is_ok(), "Push failed (buffer full).");
+            }
+
             // Memmove the elements.
             ptr::copy(self.pool.get_unchecked(ind) as *const Block,
                       self.pool.get_unchecked_mut(ind + 1) as *mut Block, n);
 
             // Set the element.
             *self.pool.get_unchecked_mut(ind) = block;
-        }
-        if ind + n == self.pool.len() {
-            // We moved a block into reserved memory but outside of the vec's bounds
-            self.pool.grow();
         }
 
         // Check consistency.

@@ -108,17 +108,17 @@ impl<T: Leak> Vec<T> {
     /// Truncate this vector.
     ///
     /// This is O(1).
+    ///
+    /// # Panics
+    ///
+    /// Panics on out-of-bound.
     pub fn truncate(&mut self, len: usize) {
+        // Bound check.
         assert!(len <= self.len, "Out of bound.");
 
         self.len = len;
     }
 
-    pub fn grow(&mut self) {
-        if self.len < self.cap {
-            self.len += 1;
-        }
-    }
     /// Check the validity of a block with respect to the vector.
     ///
     /// Blocks not passing this checks might lead to logic errors when used as buffer for the

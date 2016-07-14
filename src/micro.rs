@@ -1,5 +1,7 @@
 //! Micro slots for caching small allocations.
 
+// TODO needs tests and documentation.
+
 use prelude::*;
 
 use core::{marker, mem};
