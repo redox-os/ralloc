@@ -5,9 +5,10 @@
 
 use prelude::*;
 
-use sys;
+use {sys, fail};
 
 use core::{ptr, cmp, mem, fmt};
+use core::convert::TryInto;
 
 /// A contiguous memory block.
 ///
@@ -45,13 +46,13 @@ impl Block {
 
     /// BRK allocate a block.
     #[inline]
-    pub fn brk(size: usize) -> Result<Block, ()> {
-        Ok(Block {
+    pub fn brk(size: usize) -> Block {
+        Block {
             size: size,
             ptr: unsafe {
-                Pointer::new(try!(sys::sbrk(size as isize)))
+                Pointer::new(sys::sbrk(size.try_into().unwrap()).unwrap_or_else(|()| fail::oom()))
             },
-        })
+        }
     }
 
     /// Create an empty block starting at `ptr`.
@@ -75,10 +76,15 @@ impl Block {
 
     /// Create an empty block representing the right edge of this block
     #[inline]
+    #[allow(cast_possible_wrap)]
     pub fn empty_right(&self) -> Block {
         Block {
             size: 0,
-            ptr: unsafe { Pointer::new(*self.ptr).offset(self.size as isize) },
+            ptr: unsafe {
+                // By the invariants of this type (the size is bounded by the address space), this
+                // conversion isn't overflowing.
+                Pointer::new(*self.ptr).offset(self.size as isize)
+            },
         }
     }
 
@@ -136,12 +142,15 @@ impl Block {
     }
 
     /// Volatile zero this memory.
-    #[cfg(feature = "security")]
-    pub fn zero(&mut self) {
+    ///
+    /// Note that this is a NOOP in release mode.
+    pub fn sec_zero(&mut self) {
         use core::intrinsics;
 
-        unsafe {
-            intrinsics::volatile_set_memory(*self.ptr, 0, self.size);
+        if cfg!(feature = "security") {
+            unsafe {
+                intrinsics::volatile_set_memory(*self.ptr, 0, self.size);
+            }
         }
     }
 
@@ -167,6 +176,7 @@ impl Block {
     ///
     /// Panics if `pos` is out of bound.
     #[inline]
+    #[allow(cast_possible_wrap)]
     pub fn split(self, pos: usize) -> (Block, Block) {
         assert!(pos <= self.size, "Split {} out of bound (size is {})!", pos, self.size);
 
@@ -177,7 +187,11 @@ impl Block {
             },
             Block {
                 size: self.size - pos,
-                ptr: unsafe { self.ptr.offset(pos as isize) },
+                ptr: unsafe {
+                    // This won't overflow due to the assertion above, ensuring that it is bounded
+                    // by the address space. See the `split_at_mut` source from libcore.
+                    self.ptr.offset(pos as isize)
+                },
             }
         )
     }
@@ -186,6 +200,7 @@ impl Block {
     ///
     /// Returns an `None` holding the intact block if `align` is out of bounds.
     #[inline]
+    #[allow(cast_possible_wrap)]
     pub fn align(&mut self, align: usize) -> Option<(Block, Block)> {
         // Calculate the aligner, which defines the smallest size required as precursor to align
         // the block to `align`.
@@ -206,7 +221,11 @@ impl Block {
                 },
                 Block {
                     size: old.size - aligner,
-                    ptr: unsafe { old.ptr.offset(aligner as isize) },
+                    ptr: unsafe {
+                        // The aligner is bounded by the size, which itself is bounded by the
+                        // address space. Therefore, this conversion cannot overflow.
+                        old.ptr.offset(aligner as isize)
+                    },
                 }
             ))
         } else { None }
@@ -290,7 +309,6 @@ mod test {
     }
 
     #[test]
-    #[cfg(not(feature = "libc_write"))]
     #[should_panic]
     fn test_oob() {
         let arr = b"lorem";
@@ -314,5 +332,18 @@ mod test {
         a.copy_to(&mut b);
 
         assert_eq!(arr, [0, 2, 0, 2, 255, 255]);
+    }
+
+    #[test]
+    fn test_empty_lr() {
+        let arr = b"Lorem ipsum dolor sit amet";
+        let block = unsafe {
+            Block::from_raw_parts(Pointer::new(arr.as_ptr() as *mut u8), arr.len())
+        };
+
+        assert!(block.empty_left().is_empty());
+        assert!(block.empty_right().is_empty());
+        assert_eq!(*Pointer::from(block.empty_left()) as *const u8, arr.as_ptr());
+        assert_eq!(block.empty_right(), block.split(arr.len()).1);
     }
 }

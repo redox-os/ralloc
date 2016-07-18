@@ -13,7 +13,7 @@ keywords = ["alloc", "malloc", "allocator", "ralloc", "redox"]
 license = "MIT"
 
 [dependencies]
-ralloc_shim = { path="shim" }
+ralloc_shim = { path = "shim" }
 
 [dependencies.clippy]
 git = "https://github.com/Manishearth/rust-clippy.git"
@@ -30,11 +30,12 @@ codegen-units = 1
 
 [features]
 default = ["allocator", "clippy"]
-
+# ---
 allocator = []
 debug_tools = []
 libc_write = []
 log = ["libc_write"]
 security = []
+testing = ["log", "libc_write", "debug_tools"]
 unsafe_no_brk_lock = []
 unsafe_no_mutex_lock = []

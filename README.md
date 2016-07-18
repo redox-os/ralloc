@@ -1,18 +1,27 @@
 # ralloc
 
-Redox's fast & memory efficient userspace allocator.
+A fast & memory efficient userspace allocator.
+
+This allocator is used as the default Redox.
 
 ## A note on its state.
 
 It fully works, although it is relatively slow, since it haven't been optimized
-yet. There is currently no known bugs, but it haven't been carefully reviewed
-yet, so avoid using it in security critical programs.
+yet.
 
 I consider the state of the code quality very good.
 
+## Platforms supported out-of-the-box
+
+- [x] BSD
+- [x] Linux
+- [x] Mac OS X
+- [x] Redox
+- [ ] Windows
+
 ## Using ralloc
 
-Add ralloc to `Cargo.toml`:
+Add `ralloc` to `Cargo.toml`:
 
 ```toml
 [dependencies.ralloc]
@@ -25,9 +34,9 @@ then import it in your main file:
 extern crate ralloc;
 ```
 
-ralloc is now ready to roll!
+`ralloc` is now ready to roll!
 
-Note that ralloc cannot coexist with another allocator, unless they're deliberately compatible.
+Note that `ralloc` cannot coexist with another allocator, unless they're deliberately compatible.
 
 ## Features
 
@@ -39,18 +48,18 @@ You can set custom OOM handlers, by:
 extern crate ralloc;
 
 fn my_handler() -> ! {
-    println!("Oh no. Blame somebody.");
+    println!("Oh no. Blame the Mexicans.");
 }
 
 fn main() {
-    ralloc::lock().set_oom_handler(my_handler);
+    ralloc::set_oom_handler(my_handler);
     // Do some stuff...
 }
 ```
 
 ### Debug check: double free
 
-Ooh, this one is a cool one. ralloc detects various memory bugs when compiled
+Ooh, this one is a cool one. `ralloc` detects various memory bugs when compiled
 with the `debug_tools` feature. These checks include double free checks:
 
 ```rust
@@ -60,9 +69,9 @@ fn main() {
     // We start by allocating some stuff.
     let a = Box::new(500u32);
     // Then we memcpy the pointer (this is UB).
-    let b = Box::from_raw(&a as *mut u32);
+    let b = unsafe { Box::from_raw(&*a as *mut u32) };
     // Now both destructors are called. First a, then b, which is a double
-    // free. Luckily, ralloc provides a nice message for you, when in debug
+    // free. Luckily, `ralloc` provides a nice message for you, when in debug
     // tools mode:
     //    Assertion failed: Double free.
 
@@ -73,7 +82,7 @@ fn main() {
 
 ### Debug check: memory leaks.
 
-ralloc got memleak superpowers too! Enable `debug_tools` and do:
+`ralloc` got memleak superpowers too! Enable `debug_tools` and do:
 
 ```rust
 extern crate ralloc;
@@ -99,7 +108,7 @@ fn main() {
 ### Partial deallocation
 
 Many allocators limits deallocations to be allocated block, that is, you cannot
-perform arithmetics or split it. ralloc does not have such a limitation:
+perform arithmetics or split it. `ralloc` does not have such a limitation:
 
 ```rust
 extern crate ralloc;
@@ -151,16 +160,43 @@ fn main() {
 ### Top notch security
 
 If you are willing to trade a little performance, for extra security you can
-compile ralloc with the `security` flag. This will, along with other things,
+compile `ralloc` with the `security` flag. This will, along with other things,
 make frees zeroing.
 
 In other words, an attacker cannot for example inject malicious code or data,
 which can be exploited when forgetting to initialize the data you allocate.
 
+### Code verification
+
+Allocators are extremely security critical.If the same addressis allocated to
+two different callers, you risk all sorts of vulnerabilities. For this reason,
+it is important that the code is reviewed and verified.
+
+`ralloc` uses a multi-stage verification model:
+
+1. The type checker. A significant part of the verification is done entirely
+   statically, and enforced through the type checker. We make excessive use of
+   Rust's safety features and especially affine types.
+2. Unit testing. `ralloc` has full-coverage unit tests, even for private
+   interfaces.
+3. Integration testing suit. `ralloc` uses a form of generative testing, where
+   tests are "expanded" through a fixed set of functions. This allows
+   relatively few tests (e.g., a few hundreds of lines) to multiply and become
+   even more effective.
+4. Runtime checks. `ralloc` tries to avoid runtime tests, whenever it can, but
+   that is not always possible. When the security gain is determined to be
+   significant, and the performance loss is small, we use runtime checks (like
+   checks for buffer overflows).
+5. Debug assertions. `ralloc` contains numerous debug assertions, enabled in
+   debug mode. These allows for very careful testing for things like double
+   free, memory corruption, as well as leaks and alignment checks.
+6. Manual reviewing. One or more persons reviews patches to ensure high
+   security.
+
 ### Lock reuse
 
 Acquiring a lock sequentially multiple times can be expensive. Therefore,
-ralloc allows you to lock the allocator once, and reuse that:
+`ralloc` allows you to lock the allocator once, and reuse that:
 
 ```rust
 extern crate ralloc;
@@ -174,14 +210,14 @@ fn main() {
     let _ = lock.alloc(4, 2);
     let _ = lock.alloc(4, 2);
 
-    // It is automatically released through its destructor.
+    // The lock is automatically released through its destructor.
 }
 ```
 
 ### Security through the type system
 
-ralloc makes heavy use of Rust's type system, to make safety guarantees.
-Internally, ralloc has a primitive named `Block`. This is fairly simple,
+`ralloc` makes heavy use of Rust's type system, to make safety guarantees.
+Internally, `ralloc` has a primitive named `Block`. This is fairly simple,
 denoting a contagious segment of memory, but what is interesting is how it is
 checked at compile time to be unique. This is done through the affine type
 system.
@@ -190,7 +226,9 @@ This is just one of many examples.
 
 ### Platform agnostic
 
-ralloc is platform independent, with the only requirement of the following symbols:
+`ralloc` is platform independent. It depends on `ralloc_shim`, a minimal
+interface for platform dependent functions. The default implementation of
+`ralloc_shim` requires the following symbols:
 
 1. `sbrk`: For extending the data segment size.
 2. `sched_yield`: For the spinlock.
@@ -199,7 +237,7 @@ ralloc is platform independent, with the only requirement of the following symbo
 
 ### Local allocators
 
-ralloc allows you to create non-global allocators, for e.g. thread specific purposes:
+`ralloc` allows you to create non-global allocators, for e.g. thread specific purposes:
 
 ```rust
 extern crate ralloc;
@@ -217,7 +255,16 @@ fn main() {
 
 ### Safe SBRK
 
-ralloc provides a `sbrk`, which can be used safely without breaking the allocator.
+`ralloc` provides a `sbrk`, which can be used safely without breaking the allocator:
+
+```rust
+extern crate ralloc;
+
+fn main() {
+    // BRK'ing 20 bytes...
+    let ptr = unsafe { ralloc::sbrk(20) };
+}
+```
 
 ### Logging
 
@@ -239,3 +286,25 @@ To the left, you can see the state of the block pool. `x` denotes a non-empty
 block, `_` denotes an empty block, and `|` denotes the cursor.
 
 The `a[b]` is a syntax for block on address `a` with size `b`.
+
+### Useless alignments
+
+Alignments doesn't have to be a power of two.
+
+## Planned features
+
+### Failable allocations
+
+Often you are interested in handling OOM on a case-by-case basis. This is
+especially true when dealing with very big allocation.
+
+`ralloc` allows that:
+
+```rust
+extern crate ralloc;
+
+fn main() {
+    let buf = ralloc::lock().try_alloc(8, 4);
+    // `buf` is a Result: It is Err(()) if the allocation failed.
+}
+```

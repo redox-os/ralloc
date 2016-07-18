@@ -90,12 +90,15 @@ impl<T: Leak> Vec<T> {
     ///
     /// On success, return `Ok(())`. On failure (not enough capacity), return `Err(())`.
     #[inline]
+    #[allow(cast_possible_wrap)]
     pub fn push(&mut self, elem: T) -> Result<(), ()> {
         if self.len == self.cap {
             Err(())
         } else {
             // Place the element in the end of the vector.
             unsafe {
+                // By the invariants of this type (the size is bounded by the address space), this
+                // conversion isn't overflowing.
                 ptr::write((*self.ptr).offset(self.len as isize), elem);
             }
 

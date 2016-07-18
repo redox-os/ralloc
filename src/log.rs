@@ -2,46 +2,166 @@
 //!
 //! This allows for detailed logging for `ralloc`.
 
-/// NO-OP.
+/// Log to the appropriate source.
+///
+/// The first argument this takes is of the form `pool;cursor`, which is used to print the
+/// block pools state. `cursor` is what the operation "revolves around" to give a sense of
+/// position.
+///
+/// If the `;cursor` part is left out, no cursor will be printed.
+///
+/// The rest of the arguments are just normal formatters.
 #[macro_export]
-#[cfg(not(feature = "log"))]
 macro_rules! log {
-    ($( $arg:tt )*) => {};
-}
-
-/// Top secret place-holding module.
-#[cfg(feature = "log")]
-#[macro_use]
-pub mod internal {
-    use prelude::*;
-
-    use core::fmt;
-
-    /// Log to the appropriate source.
-    ///
-    /// The first argument this takes is of the form `pool;number`, which is used to print the
-    /// block pools state. `number` is what the operation "revolves around" to give a sense of
-    /// position.
-    ///
-    /// The rest of the arguments are just normal formatters.
-    #[macro_export]
-    macro_rules! log {
-        ($pool:expr;$n:expr, $( $arg:expr ),*) => {{
-            use {write, log};
-
+    ($pool:expr, $( $arg:expr ),*) => {
+        log!($pool;(), $( $arg ),*);
+    };
+    ($pool:expr;$cur:expr, $( $arg:expr ),*) => {{
+        #[cfg(feature = "log")]
+        {
             use core::fmt::Write;
+
+            use {write, log};
+            use log::internal::IntoCursor;
 
             // Print the pool state.
             let mut stderr = write::Writer::stderr();
             let _ = write!(stderr, "{:10?} : ", log::internal::BlockLogger {
-                cur: $n,
+                cur: $cur.clone().into_cursor(),
                 blocks: &$pool,
             });
 
             // Print the log message.
             let _ = write!(stderr, $( $arg ),*);
             let _ = writeln!(stderr, " (at {}:{})", file!(), line!());
-        }};
+        }
+    }};
+}
+
+/// Top secret place-holding module.
+#[macro_use]
+#[cfg(feature = "log")]
+pub mod internal {
+    use prelude::*;
+
+    use core::fmt;
+
+    use core::cell::Cell;
+    use core::ops::Range;
+
+    /// A "cursor".
+    ///
+    /// Cursors represents a block or an interval in the log output. This trait is implemented for
+    /// various types that can represent a cursor.
+    pub trait Cursor {
+        /// Iteration at n.
+        ///
+        /// This is called in the logging loop. The cursor should then write, what it needs, to the
+        /// formatter if the underlying condition is true.
+        ///
+        /// For example, a plain position cursor will write `"|"` when `n == self.pos`.
+        fn at(&self, f: &mut fmt::Formatter, n: usize) -> fmt::Result;
+
+        /// The after hook.
+        ///
+        /// This is runned when the loop is over. The aim is to e.g. catch up if the cursor wasn't
+        /// printed (i.e. is out of range).
+        fn after(&self, f: &mut fmt::Formatter) -> fmt::Result;
+    }
+
+    /// Types that can be converted into a cursor.
+    pub trait IntoCursor {
+        /// The end result.
+        type Cursor: Cursor;
+
+        /// Convert this value into its equivalent cursor.
+        fn into_cursor(self) -> Self::Cursor;
+    }
+
+    /// A single-point cursor.
+    pub struct UniCursor {
+        /// The position where this cursor will be placed.
+        pos: usize,
+        /// Is this cursor printed?
+        ///
+        /// This is used for the after hook.
+        is_printed: Cell<bool>,
+    }
+
+    impl Cursor for UniCursor {
+        fn at(&self, f: &mut fmt::Formatter, n: usize) -> fmt::Result {
+            if self.pos == n {
+                self.is_printed.set(true);
+                write!(f, "|")?;
+            }
+
+            Ok(())
+        }
+
+        fn after(&self, f: &mut fmt::Formatter) -> fmt::Result {
+            if !self.is_printed.get() {
+                write!(f, "…|")?;
+            }
+
+            Ok(())
+        }
+    }
+
+    impl IntoCursor for usize {
+        type Cursor = UniCursor;
+
+        fn into_cursor(self) -> UniCursor {
+            UniCursor {
+                pos: self,
+                is_printed: Cell::new(false),
+            }
+        }
+    }
+
+    impl Cursor for () {
+        fn at(&self, _: &mut fmt::Formatter, _: usize) -> fmt::Result { Ok(()) }
+
+        fn after(&self, _: &mut fmt::Formatter) -> fmt::Result { Ok(()) }
+    }
+
+    impl IntoCursor for () {
+        type Cursor = ();
+
+        fn into_cursor(self) -> () {
+            ()
+        }
+    }
+
+    /// A interval/range cursor.
+    ///
+    /// The start of the range is marked by `[` and the end by `]`.
+    pub struct RangeCursor {
+        /// The range of this cursor.
+        range: Range<usize>,
+    }
+
+    impl Cursor for RangeCursor {
+        fn at(&self, f: &mut fmt::Formatter, n: usize) -> fmt::Result {
+            if self.range.start == n {
+                write!(f, "[")?;
+            } else if self.range.end == n {
+                write!(f, "]")?;
+            }
+
+            Ok(())
+        }
+
+        fn after(&self, _: &mut fmt::Formatter) -> fmt::Result { Ok(()) }
+    }
+
+    impl IntoCursor for Range<usize> {
+        type Cursor = RangeCursor;
+
+        fn into_cursor(self) -> RangeCursor {
+            RangeCursor {
+                range: self,
+            }
+        }
     }
 
     /// A "block logger".
@@ -52,29 +172,23 @@ pub mod internal {
     /// xxx__|xx_
     /// ```
     ///
-    /// where `x` denotes an non-empty block. `_` denotes an empty block, and `|` is placed on the
-    /// "current block".
-    pub struct BlockLogger<'a> {
+    /// where `x` denotes an non-empty block. `_` denotes an empty block, with `|` representing the
+    /// cursor.
+    pub struct BlockLogger<'a, T> {
         /// The cursor.
         ///
         /// This is where the `|` will be printed.
-        pub cur: usize,
+        pub cur: T,
         /// The blocks.
         pub blocks: &'a [Block],
     }
 
-    impl<'a> fmt::Debug for BlockLogger<'a> {
+    impl<'a, T: Cursor> fmt::Debug for BlockLogger<'a, T> {
         fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
             // TODO handle alignment etc.
 
-            let mut cursor_set = false;
-
             for (n, i) in self.blocks.iter().enumerate() {
-                if n == self.cur {
-                    // Write the cursor.
-                    write!(f, "|")?;
-                    cursor_set = true;
-                }
+                self.cur.at(f, n)?;
 
                 if i.is_empty() {
                     // Empty block.
@@ -85,10 +199,7 @@ pub mod internal {
                 }
             }
 
-            if !cursor_set {
-                // The cursor isn't set yet, so we place it in the end.
-                write!(f, "|")?;
-            }
+            self.cur.after(f)?;
 
             Ok(())
         }

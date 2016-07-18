@@ -1,29 +1,31 @@
 extern crate ralloc;
 
+mod util;
+
 #[test]
-fn test() {
-    let mut vec = Vec::new();
+fn vec_box() {
+    util::multiply(|| {
+        let mut vec = Vec::new();
 
-    for i in 0..0xFFFF {
-        vec.push(Box::new(i));
-    }
+        for i in 0..0xFFF {
+            util::acid(|| {
+                vec.push(Box::new(i));
+            });
+        }
 
-    assert_eq!(*vec[0xDEAD], 0xDEAD);
-    assert_eq!(*vec[0xBEAF], 0xBEAF);
-    assert_eq!(*vec[0xABCD], 0xABCD);
-    assert_eq!(*vec[0xFFAB], 0xFFAB);
-    assert_eq!(*vec[0xAAAA], 0xAAAA);
+        assert_eq!(*vec[0xEAD], 0xEAD);
+        assert_eq!(*vec[0xEAF], 0xEAF);
+        assert_eq!(*vec[0xBCD], 0xBCD);
+        assert_eq!(*vec[0xFAB], 0xFAB);
+        assert_eq!(*vec[0xAAA], 0xAAA);
 
-    for i in 0xFFFF..0 {
-        assert_eq!(*vec.pop().unwrap(), i);
-    }
+        for i in 0xFFF..0 {
+            assert_eq!(*vec.pop().unwrap(), i);
+        }
 
-    for i in 0..0xFFFF {
-        *vec[i] = 0;
-        assert_eq!(*vec[i], 0);
-    }
-
-    drop(vec);
-
-    ralloc::lock().debug_assert_no_leak();
+        for i in 0..0xFFF {
+            *vec[i] = 0;
+            assert_eq!(*vec[i], 0);
+        }
+    });
 }

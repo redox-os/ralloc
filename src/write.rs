@@ -1,10 +1,12 @@
 //! Direct libc-based write for internal debugging.
 //!
-//! This will replace the assertion macros to avoid deadlocks in panics.
+//! This will replace the assertion macros to avoid deadlocks in panics, by utilizing a
+//! non-allocating writing primitive.
 
 use core::fmt;
 
 extern {
+    /// Write a buffer to a file descriptor.
     fn write(fd: i32, buff: *const u8, size: usize) -> isize;
 }
 
@@ -76,9 +78,10 @@ macro_rules! assert {
 /// allows for aborting, non-allocating panics when running the tests.
 #[macro_export]
 macro_rules! debug_assert {
-    ($($arg:tt)*) => {{
-        #[cfg(debug_assertions)]
-        assert!($($arg)*);
+    ($( $arg:tt )*) => {{
+        if cfg!(debug_assertions) {
+            assert!($( $arg )*);
+        }
     }}
 }
 

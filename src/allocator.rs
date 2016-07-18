@@ -4,13 +4,14 @@
 
 use prelude::*;
 
-use bookkeeper::Bookkeeper;
 use sync;
+use bookkeeper::Bookkeeper;
 
 /// The global default allocator.
 static ALLOCATOR: sync::Mutex<Allocator> = sync::Mutex::new(Allocator::new());
 
 /// Lock the allocator.
+#[inline]
 pub fn lock<'a>() -> sync::MutexGuard<'a, Allocator> {
     ALLOCATOR.lock()
 }
@@ -26,6 +27,7 @@ pub struct Allocator {
 
 impl Allocator {
     /// Create a new, empty allocator.
+    #[inline]
     pub const fn new() -> Allocator {
         Allocator {
             inner: Bookkeeper::new(),
@@ -33,6 +35,10 @@ impl Allocator {
     }
 
     /// Allocate a block of memory.
+    ///
+    /// # Errors
+    ///
+    /// The OOM handler handles out-of-memory conditions.
     #[inline]
     pub fn alloc(&mut self, size: usize, align: usize) -> *mut u8 {
         *Pointer::from(self.inner.alloc(size, align))
@@ -42,23 +48,25 @@ impl Allocator {
     ///
     /// Note that this do not have to be a buffer allocated through ralloc. The only requirement is
     /// that it is not used after the free.
+    ///
+    /// # Errors
+    ///
+    /// The OOM handler handles out-of-memory conditions.
     #[inline]
     pub unsafe fn free(&mut self, ptr: *mut u8, size: usize) {
-        // When compiled with `security`, we zero this block.
-        #[cfg(feature = "security")]
-        block.zero();
-
-        // Lock the bookkeeper, and do a `free`.
-        self.inner.free(Block::from_raw_parts(Pointer::new(ptr), size));
+        self.inner.free(Block::from_raw_parts(Pointer::new(ptr), size))
     }
 
     /// Reallocate memory.
     ///
     /// Reallocate the buffer starting at `ptr` with size `old_size`, to a buffer starting at the
     /// returned pointer with size `size`.
+    ///
+    /// # Errors
+    ///
+    /// The OOM handler handles out-of-memory conditions.
     #[inline]
     pub unsafe fn realloc(&mut self, ptr: *mut u8, old_size: usize, size: usize, align: usize) -> *mut u8 {
-        // Lock the bookkeeper, and do a `realloc`.
         *Pointer::from(self.inner.realloc(
             Block::from_raw_parts(Pointer::new(ptr), old_size),
             size,
@@ -73,7 +81,6 @@ impl Allocator {
     /// This can be used to shrink (truncate) a buffer as well.
     #[inline]
     pub unsafe fn realloc_inplace(&mut self, ptr: *mut u8, old_size: usize, size: usize) -> Result<(), ()> {
-        // Lock the bookkeeper, and do a `realloc_inplace`.
         if self.inner.realloc_inplace(
             Block::from_raw_parts(Pointer::new(ptr), old_size),
             size
@@ -82,13 +89,6 @@ impl Allocator {
         } else {
             Err(())
         }
-    }
-
-    /// Set the OOM handler.
-    ///
-    /// This is called when the process is out-of-memory.
-    pub fn set_oom_handler(&mut self, handler: fn() -> !) {
-        self.inner.set_oom_handler(handler);
     }
 
     /// Assert that no leaks are done.

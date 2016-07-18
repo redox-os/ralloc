@@ -15,19 +15,21 @@ static BRK_MUTEX: sync::Mutex<()> = sync::Mutex::new(());
 /// start.
 ///
 /// This uses the system call BRK as backend.
+///
+/// # Safety
+///
+/// This is safe unless you have negative or overflowing `n`.
 #[inline]
-pub fn sbrk(n: isize) -> Result<*mut u8, ()> {
+pub unsafe fn sbrk(n: isize) -> Result<*mut u8, ()> {
     // Lock the BRK mutex.
     #[cfg(not(feature = "unsafe_no_brk_lock"))]
     let _guard = BRK_MUTEX.lock();
 
-    unsafe {
-        let brk = ralloc_shim::sbrk(n);
-        if brk as usize == !0 {
-            Err(())
-        } else {
-            Ok(brk)
-        }
+    let brk = ralloc_shim::sbrk(n);
+    if brk as usize == !0 {
+        Err(())
+    } else {
+        Ok(brk)
     }
 }
 
@@ -42,14 +44,8 @@ mod test {
 
     #[test]
     fn test_oom() {
-        assert!(sbrk(9999999999999).is_err());
-    }
-
-    #[test]
-    #[ignore]
-    // TODO: fix this test
-    fn test_overflow() {
-        assert!(sbrk(!0).is_err());
-        assert!(sbrk(!0 - 2000).is_err());
+        unsafe {
+            assert!(sbrk(9999999999999).is_err());
+        }
     }
 }
