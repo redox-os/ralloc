@@ -81,8 +81,8 @@ impl Block {
         Block {
             size: 0,
             ptr: unsafe {
-                // By the invariants of this type (the size is bounded by the address space), this
-                // conversion isn't overflowing.
+                // By the invariants of this type (the end is addressable), this conversion isn't
+                // overflowing.
                 Pointer::new(*self.ptr).offset(self.size as isize)
             },
         }
@@ -142,8 +142,6 @@ impl Block {
     }
 
     /// Volatile zero this memory.
-    ///
-    /// Note that this is a NOOP in release mode.
     pub fn sec_zero(&mut self) {
         use core::intrinsics;
 

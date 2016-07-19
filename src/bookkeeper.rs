@@ -415,7 +415,7 @@ impl Bookkeeper {
 
                 // Place the excessive block back.
                 let (res, excessive) = block.split(new_size);
-                // Remove_at may have shortened the Vvector.
+                // Remove_at may have shortened the vector.
                 if ind.start == self.pool.len() {
                     self.push_no_reserve(excessive);
                 } else if !excessive.is_empty() {
