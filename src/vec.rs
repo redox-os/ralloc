@@ -108,6 +108,25 @@ impl<T: Leak> Vec<T> {
         }
     }
 
+    /// Pop an element from the vector.
+    ///
+    /// If the vector is empty, `None` is returned.
+    #[inline]
+    pub fn pop(&mut self) -> Option<T> {
+        if self.len == 0 {
+            None
+        } else {
+            unsafe {
+                // Decrement the length.
+                self.len -= 1;
+
+                // We use `ptr::read` since the element is unaccessible due to the decrease in the
+                // length.
+                Some(ptr::read(self.get_unchecked(self.len)))
+            }
+        }
+    }
+
     /// Truncate this vector.
     ///
     /// This is O(1).
@@ -145,9 +164,9 @@ impl<T: Leak> From<Vec<T>> for Block {
 }
 
 impl<T: Leak> ops::Deref for Vec<T> {
-    #[inline]
     type Target = [T];
 
+    #[inline]
     fn deref(&self) -> &[T] {
         unsafe {
             slice::from_raw_parts(*self.ptr as *const _, self.len)
@@ -200,10 +219,20 @@ mod test {
         for _ in 0..14 {
             vec.push(b'_').unwrap();
         }
+        assert_eq!(vec.pop().unwrap(), b'_');
+        vec.push(b'@').unwrap();
+
 
         vec.push(b'!').unwrap_err();
 
-        assert_eq!(&*vec, b".aaaaaaaaaaaaaaabc______________");
+        assert_eq!(&*vec, b".aaaaaaaaaaaaaaabc_____________@");
         assert_eq!(vec.capacity(), 32);
+
+        for _ in 32 { vec.pop().unwrap(); }
+
+        vec.pop().unwrap_err();
+        vec.pop().unwrap_err();
+        vec.pop().unwrap_err();
+        vec.pop().unwrap_err();
     }
 }

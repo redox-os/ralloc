@@ -267,6 +267,13 @@ impl fmt::Debug for Block {
     }
 }
 
+/// Make sure dropped blocks are empty.
+impl Drop for Block {
+    fn drop(&mut self) {
+        debug_assert!(self.is_empty(), "Dropping a non-empty block.");
+    }
+}
+
 #[cfg(test)]
 mod test {
     use prelude::*;

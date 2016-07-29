@@ -2,40 +2,12 @@
 
 use prelude::*;
 
+use brk;
 use vec::Vec;
 
+use core::marker::PhantomData;
 use core::ops::Range;
 use core::{ptr, cmp, mem};
-
-/// Canonicalize a BRK request.
-///
-/// Syscalls can be expensive, which is why we would rather accquire more memory than necessary,
-/// than having many syscalls acquiring memory stubs. Memory stubs are small blocks of memory,
-/// which are essentially useless until merge with another block.
-///
-/// To avoid many syscalls and accumulating memory stubs, we BRK a little more memory than
-/// necessary. This function calculate the memory to be BRK'd based on the necessary memory.
-///
-/// The return value is always greater than or equals to the argument.
-#[inline]
-fn canonicalize_brk(min: usize) -> usize {
-    /// The BRK multiplier.
-    ///
-    /// The factor determining the linear dependence between the minimum segment, and the acquired
-    /// segment.
-    const BRK_MULTIPLIER: usize = 2;
-    /// The minimum size to be BRK'd.
-    const BRK_MIN: usize = 65536;
-    /// The maximal amount of _extra_ elements.
-    const BRK_MAX_EXTRA: usize = 4 * 65536;
-
-    let res = cmp::max(BRK_MIN, min.saturating_add(cmp::min(BRK_MULTIPLIER * min, BRK_MAX_EXTRA)));
-
-    // Make some handy assertions.
-    debug_assert!(res >= min, "Canonicalized BRK space is smaller than the one requested.");
-
-    res
-}
 
 /// The memory bookkeeper.
 ///
@@ -48,7 +20,7 @@ fn canonicalize_brk(min: usize) -> usize {
 /// Only making use of only [`alloc`](#method.alloc), [`free`](#method.free),
 /// [`realloc`](#method.realloc) (and following their respective assumptions) guarantee that no
 /// buffer overrun, arithmetic overflow, panic, or otherwise unexpected crash will happen.
-pub struct Bookkeeper {
+pub struct Bookkeeper<B> {
     /// The internal block pool.
     ///
     /// # Guarantees
@@ -65,9 +37,14 @@ pub struct Bookkeeper {
     /// The number of bytes currently allocated.
     #[cfg(feature = "debug_tools")]
     allocated: usize,
+    /// The "breaker", i.e. the fresh allocator.
+    ///
+    /// This has as job as acquiring new memory through some external source (e.g. BRK or the
+    /// global allocator).
+    breaker: PhantomData<B>,
 }
 
-impl Bookkeeper {
+impl<B: Breaker> Bookkeeper<B> {
     /// Create a new, empty block pool.
     ///
     /// This will make no allocations or BRKs.
@@ -168,7 +145,7 @@ impl Bookkeeper {
             // There are many corner cases that make knowing where to insert it difficult
             // so we search instead.
             let bound = self.find_bound(&excessive);
-            self.free_ind(bound, excessive);
+            self.free_bound(bound, excessive);
 
             // Check consistency.
             self.check();
@@ -241,7 +218,7 @@ impl Bookkeeper {
         let bound = self.find_bound(&block);
 
         // Free the given block.
-        self.free_ind(bound, block);
+        self.free_bound(bound, block);
     }
 
     /// Reallocate memory.
@@ -285,7 +262,7 @@ impl Bookkeeper {
         // "Leave" the allocator.
         let block = self.enter(block);
         // Try to do an inplace reallocation.
-        match self.realloc_inplace_ind(ind, block, new_size) {
+        match self.realloc_inplace_bound(ind, block, new_size) {
             Ok(block) => self.leave(block),
             Err(block) => {
                 // Reallocation cannot be done inplace.
@@ -299,7 +276,7 @@ impl Bookkeeper {
                 // Free the old block.
                 // Allocation may have moved insertion so we search again.
                 let bound = self.find_bound(&block);
-                self.free_ind(bound, block);
+                self.free_bound(bound, block);
 
                 // Check consistency.
                 self.check();
@@ -322,7 +299,7 @@ impl Bookkeeper {
     ///
     /// This shouldn't be used when the index of insertion is known, since this performs an binary
     /// search to find the blocks index. When you know the index use
-    /// [`realloc_inplace_ind`](#method.realloc_inplace_ind.html).
+    /// [`realloc_inplace_bound`](#method.realloc_inplace_bound.html).
     #[inline]
     pub fn realloc_inplace(&mut self, block: Block, new_size: usize) -> Result<Block, Block> {
         // Logging.
@@ -332,7 +309,7 @@ impl Bookkeeper {
         let bound = self.find_bound(&block);
 
         // Go for it!
-        let res = self.realloc_inplace_ind(bound, block, new_size);
+        let res = self.realloc_inplace_bound(bound, block, new_size);
 
         // Check consistency.
         debug_assert!(res.as_ref().ok().map_or(true, |x| x.size() == new_size), "Requested space \
@@ -341,37 +318,10 @@ impl Bookkeeper {
         res
     }
 
-    /// Allocate _fresh_ space.
-    ///
-    /// "Fresh" means that the space is allocated through a BRK call to the kernel.
-    ///
-    /// The returned pointer is guaranteed to be aligned to `align`.
-    #[inline]
-    fn alloc_fresh(&mut self, size: usize, align: usize) -> Block {
-        // Logging.
-        log!(self.pool, "Fresh allocation of size {} with alignment {}.", size, align);
-
-        // To avoid shenanigans with unbounded recursion and other stuff, we pre-reserve the
-        // buffer.
-        self.reserve_more(2);
-
-        // BRK what you need.
-        let (alignment_block, res, excessive) = self.brk(size, align);
-
-        // Add it to the list. This will not change the order, since the pointer is higher than all
-        // the previous blocks.
-        self.double_push(alignment_block, excessive);
-
-        // Check consistency.
-        self.check();
-
-        res
-    }
-
-    /// Reallocate a block on a know index inplace.
+    /// Reallocate a block on a know index bound inplace.
     ///
     /// See [`realloc_inplace`](#method.realloc_inplace.html) for more information.
-    fn realloc_inplace_ind(&mut self, ind: Range<usize>, mut block: Block, new_size: usize) -> Result<Block, Block> {
+    fn realloc_inplace_bound(&mut self, ind: Range<usize>, mut block: Block, new_size: usize) -> Result<Block, Block> {
         // Logging.
         log!(self.pool;ind, "Try inplace reallocating {:?} to size {}.", block, new_size);
 
@@ -386,7 +336,7 @@ impl Bookkeeper {
             // Split the block in two segments, the main segment and the excessive segment.
             let (block, excessive) = block.split(new_size);
             // Free the excessive segment.
-            self.free_ind(ind, excessive);
+            self.free_bound(ind, excessive);
 
             // Make some assertions to avoid dumb bugs.
             debug_assert!(block.size() == new_size, "Block wasn't shrinked properly.");
@@ -441,7 +391,7 @@ impl Bookkeeper {
     ///
     /// See [`free`](#method.free) for more information.
     #[inline]
-    fn free_ind(&mut self, ind: Range<usize>, mut block: Block) {
+    fn free_bound(&mut self, ind: Range<usize>, mut block: Block) {
         // Logging.
         log!(self.pool;ind, "Freeing {:?}.", block);
 
@@ -483,28 +433,24 @@ impl Bookkeeper {
         self.check();
     }
 
-    /// Extend the data segment.
-    #[inline]
-    fn brk(&self, size: usize, align: usize) -> (Block, Block, Block) {
+    /// Allocate _fresh_ space.
+    ///
+    /// "Fresh" means that the space is allocated through the breaker.
+    ///
+    /// The returned pointer is guaranteed to be aligned to `align`.
+    fn alloc_fresh(&mut self, size: usize, align: usize) -> Block {
         // Logging.
-        log!(self.pool;self.pool.len(), "BRK'ing a block of size, {}, and alignment {}.", size, align);
+        log!(self.pool, "Fresh allocation of size {} with alignment {}.", size, align);
 
-        // Calculate the canonical size (extra space is allocated to limit the number of system calls).
-        let brk_size = canonicalize_brk(size).checked_add(align).expect("Alignment addition overflowed.");
+        // Break it to me!
+        let res = B::alloc_fresh(size, align);
 
-        // Use SBRK to allocate extra data segment. The alignment is used as precursor for our
-        // allocated block. This ensures that it is properly memory aligned to the requested value.
-        let (alignment_block, rest) = Block::brk(brk_size).align(align).unwrap();
+        // Check consistency.
+        self.check();
 
-        // Split the block to leave the excessive space.
-        let (res, excessive) = rest.split(size);
-
-        // Make some assertions.
-        debug_assert!(res.aligned_to(align), "Alignment failed.");
-        debug_assert!(res.size() + alignment_block.size() + excessive.size() == brk_size, "BRK memory leak");
-
-        (alignment_block, res, excessive)
+        res
     }
+
 
     /// Push two blocks to the block pool.
     ///
@@ -553,48 +499,6 @@ impl Bookkeeper {
         }
 
         self.check();
-    }
-
-    /// Reserve space for the block pool.
-    ///
-    /// This will ensure the capacity is at least `needed` greater than the current length,
-    /// potentially reallocating the block pool.
-    #[inline]
-    fn reserve_more(&mut self, needed: usize) {
-        // Logging.
-        log!(self.pool;self.pool.len(), "Reserving {} past {}, currently has capacity {}.", needed,
-             self.pool.len(), self.pool.capacity());
-
-        let needed = self.pool.len() + needed;
-        if needed > self.pool.capacity() {
-            // TODO allow BRK-free non-inplace reservations.
-            // TODO Enable inplace reallocation in this position.
-
-            // Reallocate the block pool.
-
-            // Make a fresh allocation.
-            let size = needed.saturating_add(
-                cmp::min(self.pool.capacity(), 200 + self.pool.capacity() / 2)
-                // We add:
-                + 1 // block for the alignment block.
-                + 1 // block for the freed vector.
-                + 1 // block for the excessive space.
-            ) * mem::size_of::<Block>();
-            let (alignment_block, alloc, excessive) = self.brk(size, mem::align_of::<Block>());
-
-            // Refill the pool.
-            let old = self.pool.refill(alloc);
-
-            // Double push the alignment block and the excessive space linearly (note that it is in
-            // fact in the end of the pool, due to BRK _extending_ the segment).
-            self.double_push(alignment_block, excessive);
-
-            // Free the old vector.
-            self.free(old);
-
-            // Check consistency.
-            self.check();
-        }
     }
 
     /// Perform a binary search to find the appropriate place where the block can be insert or is
@@ -811,6 +715,24 @@ impl Bookkeeper {
         }
     }
 
+    /// Reserve space for the block pool.
+    ///
+    /// This will ensure the capacity is at least `needed` greater than the current length,
+    /// potentially reallocating the block pool.
+    fn reserve_more(&mut self, extra: usize) {
+        // Logging.
+        log!(bk.pool;bk.pool.len(), "Reserving {} past {}, currently has capacity {}.", extra,
+             bk.pool.len(), bk.pool.capacity());
+
+        let needed = bk.pool.len() + extra;
+        if needed > bk.pool.capacity() {
+            B::realloc_pool(self, needed);
+
+            // Check consistency.
+            bk.check();
+        }
+    }
+
     /// Leave the allocator.
     ///
     /// A block should be "registered" through this function when it leaves the allocated (e.g., is
@@ -865,8 +787,8 @@ impl Bookkeeper {
                 let mut next = x;
                 for (n, i) in it {
                     // Check if sorted.
-                    assert!(next >= i, "The block pool is not sorted at index, {} ({:?} < {:?})", n, next,
-                            i);
+                    assert!(next >= i, "The block pool is not sorted at index, {} ({:?} < {:?}).",
+                            n, next, i);
                     // Make sure no blocks are adjacent.
                     assert!(!i.left_to(next) || i.is_empty(), "Adjacent blocks at index, {} ({:?} and \
                             {:?})", n, i, next);
@@ -887,13 +809,168 @@ impl Bookkeeper {
         }
     }
 
+    /// Attach this allocator to the current thread.
+    ///
+    /// This will make sure this allocator's data  is freed to the
+    pub unsafe fn attach(&mut self) {
+        fn dtor(ptr: *mut Bookkeeper) {
+            let alloc = *ptr;
+
+            // Lock the global allocator.
+            let global_alloc = allocator::GLOBAL_ALLOCATOR.lock();
+
+            // TODO, we know this is sorted, so we could abuse that fact to faster insertion in the
+            // global allocator.
+
+            // Free everything in the allocator.
+            while let Some(i) = alloc.pool.pop() {
+                global_alloc.free(i);
+            }
+
+            // Deallocate the vector itself.
+            global_alloc.free(Block::from(alloc.pool));
+
+            // Gotta' make sure no memleaks are here.
+            #[cfg(feature = "debug_tools")]
+            alloc.assert_no_leak();
+        }
+
+        sys::register_thread_destructor(self as *mut Bookkeeper, dtor).unwrap();
+    }
+
     /// Check for memory leaks.
     ///
     /// This will ake sure that all the allocated blocks have been freed.
     #[cfg(feature = "debug_tools")]
-    pub fn assert_no_leak(&self) {
+    fn assert_no_leak(&self) {
         assert!(self.allocated == self.pool.capacity() * mem::size_of::<Block>(), "Not all blocks \
                 freed. Total allocated space is {} ({} free blocks).", self.allocated,
                 self.pool.len());
+    }
+}
+
+trait Breaker {
+    /// Allocate _fresh_ space.
+    ///
+    /// "Fresh" means that the space is allocated through the breaker.
+    ///
+    /// The returned pointer is guaranteed to be aligned to `align`.
+    fn alloc_fresh(bk: &mut Bookkeeper<Self>, size: usize, align: usize) -> Block;
+    /// Realloate the block pool to some specified capacity.
+    fn realloc_pool(bk: &mut Bookkeeper<Self>, cap: usize);
+}
+
+/// SBRK fresh allocator.
+///
+/// This will extend the data segment whenever new memory is needed. Since this includes leaving
+/// userspace, this shouldn't be used when other allocators are available (i.e. the bookkeeper is
+/// local).
+struct Sbrk;
+
+impl Breaker for Sbrk {
+    #[inline]
+    fn alloc_fresh(bk: &mut Bookkeeper<Sbrk>, size: usize, align: usize) -> Block {
+        // Obtain what you need.
+        let (alignment_block, res, excessive) = brk::get(size, align);
+
+        // Add it to the list. This will not change the order, since the pointer is higher than all
+        // the previous blocks.
+        bk.double_push(alignment_block, excessive);
+
+        res
+    }
+
+    #[inline]
+    fn realloc_pool(bk: &mut Bookkeeper<Sbrk>, extra: usize) {
+        // TODO allow BRK-free non-inplace reservations.
+        // TODO Enable inplace reallocation in this position.
+
+        // Reallocate the block pool.
+
+        // Make a fresh allocation.
+        let size = (needed +
+            cmp::min(bk.pool.capacity(), 200 + bk.pool.capacity() / 2)
+            // We add:
+            + 1 // block for the alignment block.
+            + 1 // block for the freed vector.
+            + 1 // block for the excessive space.
+        ) * mem::size_of::<Block>();
+        let (alignment_block, alloc, excessive) = brk::get(size, mem::align_of::<Block>());
+
+        // Refill the pool.
+        let old = bk.pool.refill(alloc);
+
+        // Double push the alignment block and the excessive space linearly (note that it is in
+        // fact in the end of the pool, due to BRK _extending_ the segment).
+        bk.double_push(alignment_block, excessive);
+
+        // Free the old vector.
+        bk.free(old);
+    }
+}
+
+/// Allocate fresh memory from the global allocator.
+struct GlobalAllocator;
+
+impl Breaker for GlobalAllocator {
+    #[inline]
+    fn alloc_fresh(bk: &mut Bookkeeper<GlobalAllocator>, size: usize, align: usize) -> Block {
+        /// Canonicalize the requested space.
+        ///
+        /// We request excessive space to the upstream allocator to avoid repeated requests and
+        /// lock contentions.
+        #[inline]
+        fn canonicalize_space(min: usize) -> usize {
+            // TODO tweak this.
+
+            // To avoid having mega-allocations allocate way to much space, we
+            // have a maximal extra space limit.
+            if min > 8192 { min } else {
+                // To avoid paying for short-living or little-allocating threads, we have no minimum.
+                // Instead we multiply.
+                min * 4
+                // This won't overflow due to the conditition of this branch.
+            }
+        }
+
+        // Get the block from the global allocator.
+        let (res, excessive) = allocator::GLOBAL_ALLOCATOR.lock()
+            .alloc(canonicalize_space(size), align)
+            .split(size);
+
+        // Free the excessive space to the current allocator. Note that you cannot simply push
+        // (which is the case for SBRK), due the block not necessarily being above all the other
+        // blocks in the pool. For this reason, we let `free` handle the search and so on.
+        bk.free(excessive);
+
+        res
+    }
+
+    #[inline]
+    fn realloc_pool(bk: &mut Bookkeeper<GlobalAllocator>, extra: usize) {
+        // TODO allow BRK-free non-inplace reservations.
+        // TODO Enable inplace reallocation in this position.
+
+        // Reallocate the block pool.
+
+        // Make a fresh allocation.
+        let size = (needed +
+            cmp::min(bk.pool.capacity(), 200 + bk.pool.capacity() / 2)
+            // We add:
+            + 1 // block for the alignment block.
+            + 1 // block for the freed vector.
+            + 1 // block for the excessive space.
+        ) * mem::size_of::<Block>();
+        let (alignment_block, alloc, excessive) = brk::get(size, mem::align_of::<Block>());
+
+        // Refill the pool.
+        let old = bk.pool.refill(alloc);
+
+        // Double push the alignment block and the excessive space linearly (note that it is in
+        // fact in the end of the pool, due to BRK _extending_ the segment).
+        bk.double_push(alignment_block, excessive);
+
+        // Free the old vector.
+        bk.free(old);
     }
 }

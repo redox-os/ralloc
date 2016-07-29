@@ -57,6 +57,23 @@ fn main() {
 }
 ```
 
+### Thread-specific OOM handlers.
+
+You can override the global OOM handler for your current thread. Enable the `thread_oom` feature, and then do:
+
+```rust
+extern crate ralloc;
+
+fn my_handler() -> ! {
+    println!("Oh no. Blame the Mexicans.");
+}
+
+fn main() {
+    ralloc::set_thread_oom_handler(my_handler);
+    // Do some stuff...
+}
+```
+
 ### Debug check: double free
 
 Ooh, this one is a cool one. `ralloc` detects various memory bugs when compiled
@@ -87,21 +104,20 @@ fn main() {
 ```rust
 extern crate ralloc;
 
-use std::mem;
+use std::{mem, spawn};
 
 fn main() {
-    {
-        // We start by allocating some stuff.
-        let a = Box::new(500u32);
-        // We then leak `a`.
-        let b = mem::forget(a);
-    }
-    // The box is now leaked, and the destructor won't be called.
+    thread::spawn(|| {
+        {
+            // We start by allocating some stuff.
+            let a = Box::new(500u32);
+            // We then leak `a`.
+            let b = mem::forget(a);
+        }
+        // The box is now leaked, and the destructor won't be called.
 
-    // To debug this we insert a memory leak check in the end of our programs.
-    // This will panic if a memory leak is found (and will be a NOOP without
-    // `debug_tools`).
-    ralloc::lock().debug_assert_no_leak();
+        // When this thread exits, the program will panic.
+    });
 }
 ```
 
@@ -227,13 +243,8 @@ This is just one of many examples.
 ### Platform agnostic
 
 `ralloc` is platform independent. It depends on `ralloc_shim`, a minimal
-interface for platform dependent functions. The default implementation of
-`ralloc_shim` requires the following symbols:
-
-1. `sbrk`: For extending the data segment size.
-2. `sched_yield`: For the spinlock.
-3. `memcpy`, `memcmp`, `memset`: Core memory routines.
-4. `rust_begin_unwind`: For panicking.
+interface for platform dependent functions. An default implementation of
+`ralloc_shim` is provided (supporting Mac OS, Linux, and BSD).
 
 ### Local allocators
 
@@ -268,7 +279,7 @@ fn main() {
 
 ### Logging
 
-If you enable the `log` feature, you get detailed locking of the allocator, e.g.
+If you enable the `log` feature, you get detailed logging of the allocator, e.g.
 
 ```
 |   : BRK'ing a block of size, 80, and alignment 8.            (at bookkeeper.rs:458)

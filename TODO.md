@@ -1,5 +1,7 @@
 - [x] Thread local allocator.
 - [x] Lock reuse
+- [ ] Freeze/unfreeze -- memcompression
+- [ ] Proper error messages in unwraps.
 - [ ] Checkpoints
 - [ ] Fast `calloc`
 - [ ] Microcaches.

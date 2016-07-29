@@ -4,16 +4,30 @@
 
 use prelude::*;
 
-use sync;
+use {sync, breaker};
 use bookkeeper::Bookkeeper;
 
 /// The global default allocator.
-static ALLOCATOR: sync::Mutex<Allocator> = sync::Mutex::new(Allocator::new());
+static GLOBAL_ALLOCATOR: sync::Mutex<Allocator<breaker::Sbrk>> = sync::Mutex::new(Allocator::new());
+tls! {
+    /// The thread-local allocator.
+    static ALLOCATOR: Option<UniCell<Allocator<breaker::Global>>> = None;
+}
 
-/// Lock the allocator.
+/// Get the allocator.
 #[inline]
-pub fn lock<'a>() -> sync::MutexGuard<'a, Allocator> {
-    ALLOCATOR.lock()
+pub fn get() -> Result<Allocator<breaker::Global>, ()> {
+    if ALLOCATOR.is_none() {
+        // Create the new allocator.
+        let mut alloc = Allocator::new();
+        // Attach the allocator to the current thread.
+        alloc.attach();
+
+        // To get mutable access, we wrap it in an `UniCell`.
+        ALLOCATOR = Some(UniCell::new(alloc));
+
+        &ALLOCATOR
+    }
 }
 
 /// An allocator.
@@ -89,16 +103,5 @@ impl Allocator {
         } else {
             Err(())
         }
-    }
-
-    /// Assert that no leaks are done.
-    ///
-    /// This should be run in the end of your program, after destructors have been run. It will then
-    /// panic if some item is not freed.
-    ///
-    /// In release mode, this is a NOOP.
-    pub fn debug_assert_no_leak(&self) {
-        #[cfg(feature = "debug_tools")]
-        self.inner.assert_no_leak();
     }
 }
