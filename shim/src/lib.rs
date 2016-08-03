@@ -2,7 +2,7 @@
 //!
 //! This crate provides implementation/import of these in Linux, BSD, and Mac OS.
 
-#![feature(lang_items, linkage)]
+#![feature(linkage)]
 #![no_std]
 #![warn(missing_docs)]
 
@@ -12,7 +12,7 @@ pub use libc::sched_yield;
 
 extern {
     /// Change the data segment. See `man sbrk`.
-    pub fn sbrk(libc::intptr_t) -> *const libc::c_void;
+    pub fn sbrk(_: libc::intptr_t) -> *const libc::c_void;
 }
 
 /// Thread destructors for Linux.

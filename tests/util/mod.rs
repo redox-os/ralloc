@@ -43,7 +43,7 @@ fn spawn_double<F: Fn() + Sync + Send>(func: F) {
 pub fn multiply<F: Fn() + Sync + Send + 'static>(func: F) {
     spawn_double(|| spawn_double(|| acid(|| func())));
 
-    ralloc::lock().debug_assert_no_leak();
+    // TODO assert no leaks.
 }
 
 /// Wrap a block in acid tests.

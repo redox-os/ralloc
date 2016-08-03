@@ -1,46 +1,63 @@
+use prelude::*;
+
 use core::{ops, marker};
 
-/// Add `Sync` to an arbitrary type.
-///
-/// This primitive is used to get around the `Sync` requirement in `static`s (even thread local
-/// ones! see rust-lang/rust#35035). Due to breaking invariants, creating a value of such type is
-/// unsafe, and care must be taken upon usage.
-///
-/// In general, this should only be used when you know it won't be shared across threads (e.g. the
-/// value is stored in a thread local variable).
-pub struct Syncify<T>(T);
+/// A thread-local container.
+pub struct Cell<T> {
+    /// The inner data.
+    inner: T,
+}
 
-impl<T> Syncify<T> {
-    /// Create a new `Syncify` wrapper.
+impl<T> Cell<T> {
+    /// Create a new `Cell` wrapper.
     ///
     /// # Safety
     ///
-    /// This is invariant-breaking and thus unsafe.
-    const unsafe fn new(inner: T) -> Syncify<T> {
-        Syncify(T)
+    /// This is invariant-breaking (assumes thread-safety) and thus unsafe.
+    pub const unsafe fn new(inner: T) -> Cell<T> {
+        Cell { inner: inner }
+    }
+
+    /// Get a reference to the inner value.
+    ///
+    /// Due to the variable being thread-local, one should never transfer it across thread
+    /// boundaries. The newtype returned ensures that.
+    pub fn get(&'static self) -> Ref<T> {
+        Ref::new(&self.inner)
     }
 }
 
-impl<T> ops::Deref for Syncify<T> {
+unsafe impl<T> marker::Sync for Cell<T> {}
+
+/// A reference to a thread-local variable.
+///
+/// The purpose of this is to block sending it across thread boundaries.
+pub struct Ref<T: 'static> {
+    inner: &'static T,
+}
+
+impl<T> Ref<T> {
+    /// Create a new thread-bounded reference.
+    ///
+    /// One might wonder why this is safe, and the answer is simple: this type doesn't guarantee
+    /// that the internal pointer is from the current thread, it just guarantees that _future
+    /// access_ through this struct is done in the current thread.
+    pub fn new(x: &'static T) -> Ref<T> {
+        Ref {
+            inner: x,
+        }
+    }
+}
+
+impl<T> ops::Deref for Ref<T> {
     type Target = T;
 
-    fn deref(&self) -> Syncify<T> {
-        &self.0
+    fn deref(&self) -> &T {
+        self.inner
     }
 }
 
-impl<T> ops::DerefMut for Syncify<T> {
-    fn deref_mut(&mut self) -> Syncify<T> {
-        &mut self.0
-        // If you read this, you are reading a note from a desperate programmer, who are really
-        // waiting for a upstream fix, cause holy shit. Why the heck would you have a `Sync`
-        // bound on thread-local variables. These are entirely single-threaded, and there is no
-        // reason for assuming anything else. Now that we're at it, have the world been destroyed
-        // yet?
-    }
-}
-
-unsafe impl<T> marker::Sync for Syncify<T> {}
+impl<T> !Send for Ref<T> {}
 
 /// Declare a thread-local static variable.
 ///
@@ -51,12 +68,10 @@ unsafe impl<T> marker::Sync for Syncify<T> {}
 /// For this reason, in contrast to other `static`s in Rust, this need not thread-safety, which is
 /// what this macro "fixes".
 macro_rules! tls {
-    (static $name:ident: $type:ty = $val:expr) => { tls!(#[] static $name: $type = $val) };
-    (#[$($attr:meta),*], static $name:ident: $type:ty = $val:expr) => {{
-        use tls::Syncify;
-
+    (static $name:ident: $ty:ty = $val:expr;) => { tls! { #[] static $name: $ty = $val; } };
+    (#[$($attr:meta),*] static $name:ident: $ty:ty = $val:expr;) => {
         $(#[$attr])*
         #[thread_local]
-        static $name: $type = unsafe { Syncify::new($val) };
-    }}
+        static $name: tls::Cell<$ty> = unsafe { tls::Cell::new($val) };
+    }
 }

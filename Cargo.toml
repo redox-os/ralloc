@@ -1,6 +1,6 @@
 [package]
 name = "ralloc"
-version = "0.1.0"
+version = "1.0.0"
 authors = ["ticki <ticki@users.noreply.github.com>"]
 
 # URLs and paths
@@ -12,12 +12,15 @@ readme = "README.md"
 keywords = ["alloc", "malloc", "allocator", "ralloc", "redox"]
 license = "MIT"
 
-[dependencies]
-ralloc_shim = { path = "shim" }
+[dependencies.ralloc_shim]
+path = "shim"
 
 [dependencies.clippy]
-git = "https://github.com/Manishearth/rust-clippy.git"
+version = "0.0.80"
 optional = true
+
+[dependencies.unborrow]
+git = "https://github.com/durka/unborrow.git"
 
 [profile.release]
 panic = "abort"

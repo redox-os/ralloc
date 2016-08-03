@@ -40,6 +40,12 @@ Note that `ralloc` cannot coexist with another allocator, unless they're deliber
 
 ## Features
 
+### Thread-local allocation
+
+Ralloc makes use of a global-local model allowing one to allocate or deallocate
+without locks, syncronization, or atomic writes. This provides reasonable
+performance, while preserving flexibility and ability to multithread.
+
 ### Custom out-of-memory handlers
 
 You can set custom OOM handlers, by:
@@ -99,6 +105,8 @@ fn main() {
 
 ### Debug check: memory leaks.
 
+TODO Temporarily disabled.
+
 `ralloc` got memleak superpowers too! Enable `debug_tools` and do:
 
 ```rust
@@ -112,7 +120,7 @@ fn main() {
             // We start by allocating some stuff.
             let a = Box::new(500u32);
             // We then leak `a`.
-            let b = mem::forget(a);
+            mem::forget(a);
         }
         // The box is now leaked, and the destructor won't be called.
 
@@ -146,30 +154,6 @@ fn main() {
     let b = Vec::from_raw_parts(ptr.offset(100), 100, 100);
 
     // Now, the destructor of a and b is called... Without a segfault!
-}
-```
-
-### Separate deallocation
-
-Another cool feature is that you can deallocate things that weren't even
-allocated buffers in the first place!
-
-Consider that you got a unused static variable, that you want to put into the
-allocation pool:
-
-```rust
-extern crate ralloc;
-
-static mut BUFFER: [u8; 256] = [2; 256];
-
-fn main() {
-    // Throw `BUFFER` into the memory pool.
-    unsafe {
-        ralloc::lock().free(&mut BUFFER as *mut u8, 256);
-    }
-
-    // Do some allocation.
-    assert_eq!(*Box::new(0xDEED), 0xDEED);
 }
 ```
 
@@ -209,27 +193,6 @@ it is important that the code is reviewed and verified.
 6. Manual reviewing. One or more persons reviews patches to ensure high
    security.
 
-### Lock reuse
-
-Acquiring a lock sequentially multiple times can be expensive. Therefore,
-`ralloc` allows you to lock the allocator once, and reuse that:
-
-```rust
-extern crate ralloc;
-
-fn main() {
-    // Get that lock!
-    let lock = ralloc::lock();
-
-    // All in one:
-    let _ = lock.alloc(4, 2);
-    let _ = lock.alloc(4, 2);
-    let _ = lock.alloc(4, 2);
-
-    // The lock is automatically released through its destructor.
-}
-```
-
 ### Security through the type system
 
 `ralloc` makes heavy use of Rust's type system, to make safety guarantees.
@@ -246,21 +209,23 @@ This is just one of many examples.
 interface for platform dependent functions. An default implementation of
 `ralloc_shim` is provided (supporting Mac OS, Linux, and BSD).
 
-### Local allocators
+### Forcing inplace reallocation
 
-`ralloc` allows you to create non-global allocators, for e.g. thread specific purposes:
+Inplace reallocation can be significantly faster than memcpy'ing reallocation.
+A limitation of libc is that you cannot do reallocation inplace-only (a
+failable method that guarantees the absence of memcpy of the buffer).
+
+Having a failable way to do inplace reallocation provides some interesting possibilities.
 
 ```rust
 extern crate ralloc;
 
 fn main() {
-    // We create an allocator.
-    let my_alloc = ralloc::Allocator::new();
+    let buf = ralloc::alloc(40, 1);
+    // BRK'ing 20 bytes...
+    let ptr = unsafe { ralloc::inplace_realloc(buf, 40, 45).unwrap() };
 
-    // Allocate some stuff through our local allocator.
-    let _ = my_alloc.alloc(4, 2);
-    let _ = my_alloc.alloc(4, 2);
-    let _ = my_alloc.alloc(4, 2);
+    // The buffer is now 45 bytes long!
 }
 ```
 
@@ -315,7 +280,7 @@ especially true when dealing with very big allocation.
 extern crate ralloc;
 
 fn main() {
-    let buf = ralloc::lock().try_alloc(8, 4);
+    let buf = ralloc::try_alloc(8, 4);
     // `buf` is a Result: It is Err(()) if the allocation failed.
 }
 ```

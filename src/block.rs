@@ -157,6 +157,7 @@ impl Block {
     /// This marks it as free, and returns the old value.
     #[inline]
     pub fn pop(&mut self) -> Block {
+        // TODO durka/unborrow#2 is blocking.
         let empty = Block::empty(self.ptr.clone());
         mem::replace(self, empty)
     }
@@ -267,13 +268,6 @@ impl fmt::Debug for Block {
     }
 }
 
-/// Make sure dropped blocks are empty.
-impl Drop for Block {
-    fn drop(&mut self) {
-        debug_assert!(self.is_empty(), "Dropping a non-empty block.");
-    }
-}
-
 #[cfg(test)]
 mod test {
     use prelude::*;
@@ -350,5 +344,13 @@ mod test {
         assert!(block.empty_right().is_empty());
         assert_eq!(*Pointer::from(block.empty_left()) as *const u8, arr.as_ptr());
         assert_eq!(block.empty_right(), block.split(arr.len()).1);
+    }
+
+    #[test]
+    fn test_brk_grow_up() {
+        let brk1 = Block::brk(5);
+        let brk2 = Block::brk(100);
+
+        assert!(brk1 < brk2);
     }
 }

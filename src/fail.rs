@@ -1,13 +1,17 @@
 //! General error handling.
 
+use prelude::*;
+
 use core::sync::atomic::{self, AtomicPtr};
 use core::{mem, intrinsics};
+
+use tls;
 
 /// The global OOM handler.
 static OOM_HANDLER: AtomicPtr<()> = AtomicPtr::new(default_oom_handler as *mut ());
 tls! {
     /// The thread-local OOM handler.
-    static THREAD_OOM_HANDLER: Option<fn() -> !> = None;
+    static THREAD_OOM_HANDLER: MoveCell<Option<fn() -> !>> = MoveCell::new(None);
 }
 
 /// The default OOM handler.
@@ -33,7 +37,7 @@ fn default_oom_handler() -> ! {
 /// The rule of thumb is that this should be called, if and only if unwinding (which allocates)
 /// will hit the same error.
 pub fn oom() -> ! {
-    if let Some(handler) = THREAD_OOM_HANDLER.get().unwrap() {
+    if let Some(handler) = THREAD_OOM_HANDLER.get().replace(None) {
         // There is a local allocator available.
         handler();
     } else {
@@ -53,7 +57,45 @@ pub fn set_oom_handler(handler: fn() -> !) {
 }
 
 /// Override the OOM handler for the current thread.
+///
+/// # Panics
+///
+/// This might panic if a thread OOM handler already exists.
 #[inline]
 pub fn set_thread_oom_handler(handler: fn() -> !) {
-    *THREAD_OOM_HANDLER.get().unwrap() = handler;
+    let mut thread_alloc = THREAD_OOM_HANDLER.get();
+    let out = thread_alloc.replace(Some(handler));
+
+    debug_assert!(out.is_none());
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    #[should_panic]
+    fn test_panic_oom() {
+        fn panic() -> ! {
+            panic!("cats are not cute.");
+        }
+
+        set_oom_handler(panic);
+        oom();
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_panic_thread_oom() {
+        fn infinite() -> ! {
+            loop {}
+        }
+        fn panic() -> ! {
+            panic!("cats are not cute.");
+        }
+
+        set_oom_handler(infinite);
+        set_thread_oom_handler(infinite);
+        oom();
+    }
 }

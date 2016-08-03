@@ -2,6 +2,8 @@
 
 extern crate ralloc_shim as shim;
 
+use core::mem;
+
 #[cfg(not(feature = "unsafe_no_brk_lock"))]
 use sync;
 
@@ -29,7 +31,7 @@ pub unsafe fn sbrk(n: isize) -> Result<*mut u8, ()> {
     if brk as usize == !0 {
         Err(())
     } else {
-        Ok(brk)
+        Ok(brk as *mut u8)
     }
 }
 
@@ -42,11 +44,19 @@ pub fn yield_now() {
 ///
 /// This will add a thread destructor to _the current thread_, which will be executed when the
 /// thread exits.
+///
+/// The argument to the destructor is a pointer to the so-called "load", which is the data
+/// shipped with the destructor.
 // TODO I haven't figured out a safe general solution yet. Libstd relies on devirtualization,
 // which, when missed, can make it quite expensive.
-pub fn register_thread_destructor<T>(primitive: *mut T, dtor: fn(*mut T)) -> Result<(), ()> {
+pub fn register_thread_destructor<T>(load: *mut T, dtor: extern fn(*mut T)) -> Result<(), ()> {
+    // Check if thread dtors are supported.
     if shim::thread_destructor::is_supported() {
-        shim::thread_destructor::register(primitive, dtor);
+        unsafe {
+            // This is safe due to sharing memory layout.
+            shim::thread_destructor::register(load as *mut u8, mem::transmute(dtor));
+        }
+
         Ok(())
     } else {
         Err(())

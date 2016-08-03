@@ -7,10 +7,8 @@ use std::ptr;
 #[test]
 fn manual() {
     util::multiply(|| {
-        let mut alloc = ralloc::Allocator::new();
-
-        let ptr1 = alloc.alloc(30, 3);
-        let ptr2 = alloc.alloc(500, 20);
+        let ptr1 = ralloc::alloc(30, 3);
+        let ptr2 = ralloc::alloc(500, 20);
 
         assert_eq!(0, ptr1 as usize % 3);
         assert_eq!(0, ptr2 as usize % 20);
@@ -31,7 +29,7 @@ fn manual() {
             assert_eq!(*ptr2, 0);
             assert_eq!(*ptr2.offset(15), 15);
 
-            let ptr1 = alloc.realloc(ptr1, 30, 300, 3);
+            let ptr1 = ralloc::realloc(ptr1, 30, 300, 3);
             for i in 0..300 {
                 util::acid(|| {
                     *ptr1.offset(i) = i as u8;
@@ -41,8 +39,8 @@ fn manual() {
             assert_eq!(*ptr1.offset(200), 200);
 
             util::acid(|| {
-                alloc.free(ptr1, 30);
-                alloc.free(ptr2, 500);
+                ralloc::free(ptr1, 30);
+                ralloc::free(ptr2, 500);
             });
         }
     });

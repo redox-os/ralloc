@@ -8,6 +8,7 @@ use core::{slice, ops, mem, ptr};
 ///
 /// This does not perform allocation nor reallaction, thus these have to be done manually.
 /// Moreover, no destructors are called, making it possible to leak memory.
+// NOTE  ^^^^^^^  This derivation should be carefully reviewed when this struct is changed.
 pub struct Vec<T: Leak> {
     /// A pointer to the start of the buffer.
     ptr: Pointer<T>,
@@ -22,18 +23,6 @@ pub struct Vec<T: Leak> {
 }
 
 impl<T: Leak> Vec<T> {
-    /// Create a new empty vector.
-    ///
-    /// This won't allocate a buffer, thus it will have a capacity of zero.
-    #[inline]
-    pub const fn new() -> Vec<T> {
-        Vec {
-            ptr: Pointer::empty(),
-            len: 0,
-            cap: 0,
-        }
-    }
-
     /// Create a vector from a block.
     ///
     /// # Safety
@@ -41,7 +30,6 @@ impl<T: Leak> Vec<T> {
     /// This is unsafe, since it won't initialize the buffer in any way, possibly breaking type
     /// safety, memory safety, and so on. Thus, care must be taken upon usage.
     #[inline]
-    #[cfg(test)]
     pub unsafe fn from_raw_parts(block: Block, len: usize) -> Vec<T> {
         Vec {
             cap: block.size() / mem::size_of::<T>(),
@@ -65,9 +53,11 @@ impl<T: Leak> Vec<T> {
 
         // Make some assertions.
         assert!(self.len <= new_cap, "Block not large enough to cover the vector.");
+        assert!(block.aligned_to(mem::align_of::<T>()), "Block not aligned.");
+
         self.check(&block);
 
-        let old = mem::replace(self, Vec::new());
+        let old = mem::replace(self, Vec::default());
 
         // Update the fields of `self`.
         self.cap = new_cap;
@@ -156,6 +146,17 @@ impl<T: Leak> Vec<T> {
     }
 }
 
+// TODO remove this in favour of `derive` when rust-lang/rust#35263 is fixed.
+impl<T: Leak> Default for Vec<T> {
+    fn default() -> Vec<T> {
+        Vec {
+            ptr: Pointer::empty(),
+            cap: 0,
+            len: 0,
+        }
+    }
+}
+
 /// Cast this vector to the respective block.
 impl<T: Leak> From<Vec<T>> for Block {
     fn from(from: Vec<T>) -> Block {
@@ -185,8 +186,6 @@ impl<T: Leak> ops::DerefMut for Vec<T> {
 
 #[cfg(test)]
 mod test {
-    use super::*;
-
     use prelude::*;
 
     #[test]
@@ -228,11 +227,11 @@ mod test {
         assert_eq!(&*vec, b".aaaaaaaaaaaaaaabc_____________@");
         assert_eq!(vec.capacity(), 32);
 
-        for _ in 32 { vec.pop().unwrap(); }
+        for _ in 0..32 { vec.pop().unwrap(); }
 
-        vec.pop().unwrap_err();
-        vec.pop().unwrap_err();
-        vec.pop().unwrap_err();
-        vec.pop().unwrap_err();
+        assert!(vec.pop().is_none());
+        assert!(vec.pop().is_none());
+        assert!(vec.pop().is_none());
+        assert!(vec.pop().is_none());
     }
 }

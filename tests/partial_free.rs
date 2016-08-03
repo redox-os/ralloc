@@ -7,9 +7,7 @@ use std::ptr;
 #[test]
 fn partial_free() {
     util::multiply(|| {
-        let mut alloc = ralloc::Allocator::new();
-
-        let buf = alloc.alloc(63, 3);
+        let buf = ralloc::alloc(63, 3);
 
         unsafe {
             util::acid(|| {
@@ -18,12 +16,12 @@ fn partial_free() {
             });
 
             util::acid(|| {
-                alloc.free(buf.offset(8), 75);
+                ralloc::free(buf.offset(8), 75);
                 *buf = 5;
             });
 
             util::acid(|| {
-                alloc.free(buf, 4);
+                ralloc::free(buf, 4);
                 *buf.offset(4) = 3;
             });
 
@@ -35,9 +33,7 @@ fn partial_free() {
 #[test]
 fn partial_free_double() {
     util::multiply(|| {
-        let mut alloc = ralloc::Allocator::new();
-
-        let buf = alloc.alloc(64, 4);
+        let buf = ralloc::alloc(64, 4);
 
         unsafe {
             util::acid(|| {
@@ -45,7 +41,7 @@ fn partial_free_double() {
             });
 
             util::acid(|| {
-                alloc.free(buf.offset(32), 32);
+                ralloc::free(buf.offset(32), 32);
                 *buf = 5;
             });
 
@@ -53,7 +49,7 @@ fn partial_free_double() {
 
             util::acid(|| {
                 *buf = 0xAA;
-                alloc.free(buf, 32);
+                ralloc::free(buf, 32);
             });
         }
     });

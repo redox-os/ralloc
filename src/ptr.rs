@@ -70,6 +70,12 @@ impl<T> Pointer<T> {
     }
 }
 
+impl<T> Default for Pointer<T> {
+    fn default() -> Pointer<T> {
+        Pointer::empty()
+    }
+}
+
 unsafe impl<T: Send> Send for Pointer<T> {}
 unsafe impl<T: Sync> Sync for Pointer<T> {}
 
