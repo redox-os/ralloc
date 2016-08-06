@@ -1,7 +1,5 @@
 //! `LazyStatic` like initialization.
 
-use core::{mem, ptr, intrinsics};
-
 /// The initialization state
 enum State<F, T> {
     /// The data is uninitialized, initialization is pending.
@@ -10,9 +8,14 @@ enum State<F, T> {
     Uninitialized(F),
     /// The data is initialized, and ready for use.
     Initialized(T),
+    /// The data is unreachable, panick!
+    Unreachable,
 }
 
 /// A lazily initialized container.
+///
+/// This container starts out simply containing an initializer (i.e., a function to construct the
+/// value in question). When the value is requested, the initializer runs.
 pub struct LazyInit<F, T> {
     /// The internal state.
     state: State<F, T>,
@@ -21,11 +24,22 @@ pub struct LazyInit<F, T> {
 impl<F: FnMut() -> T, T> LazyInit<F, T> {
     /// Create a new to-be-initialized container.
     ///
-    /// The closure will be executed when initialization is required.
+    /// The closure will be executed when initialization is required, and is guaranteed to be
+    /// executed at most once.
     #[inline]
     pub const fn new(init: F) -> LazyInit<F, T> {
         LazyInit {
             state: State::Uninitialized(init),
+        }
+    }
+
+    /// Create a lazy initializer with unreachable inner data.
+    ///
+    /// When access is tried, it will simply issue a panic. This is useful for e.g. temporarily
+    /// getting ownership.
+    pub const fn unreachable() -> LazyInit<F, T> {
+        LazyInit {
+            state: State::Unreachable,
         }
     }
 
@@ -34,16 +48,13 @@ impl<F: FnMut() -> T, T> LazyInit<F, T> {
     /// If it is uninitialize, it will be initialized and then returned.
     #[inline]
     pub fn get(&mut self) -> &mut T {
-        let mut inner;
+        let inner;
 
-        let res = match self.state {
-            State::Initialized(ref mut x) => {
-                return x;
-            },
-            State::Uninitialized(ref mut f) => {
-                inner = f();
-            },
-        };
+        match self.state {
+            State::Initialized(ref mut x) => return x,
+            State::Uninitialized(ref mut f) => inner = f(),
+            State::Unreachable => unreachable!(),
+        }
 
         self.state = State::Initialized(inner);
 
@@ -52,6 +63,19 @@ impl<F: FnMut() -> T, T> LazyInit<F, T> {
         } else {
             // TODO find a better way.
             unreachable!();
+        }
+    }
+
+    /// Get the inner of the container.
+    ///
+    /// This won't mutate the container itself, since it consumes it. The initializer will (if
+    /// necessary) be called and the result returned. If already initialized, the inner value will
+    /// be moved out and returned.
+    pub fn into_inner(self) -> T {
+        match self.state {
+            State::Initialized(x) => x,
+            State::Uninitialized(mut f) => f(),
+            State::Unreachable => unreachable!(),
         }
     }
 }
@@ -71,8 +95,9 @@ mod test {
         assert_eq!(*lazy.get(), 400);
     }
 
+    #[test]
     fn test_laziness() {
-        let mut is_called = Cell::new(false);
+        let is_called = Cell::new(false);
         let mut lazy = LazyInit::new(|| is_called.set(true));
         assert!(!is_called.get());
         lazy.get();

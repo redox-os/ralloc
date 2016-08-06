@@ -4,11 +4,14 @@
 
 use prelude::*;
 
-use core::{ops, mem, ptr};
+use core::{mem, ops};
 
-use {brk, tls, sys};
+use {brk, tls};
 use bookkeeper::{self, Bookkeeper, Allocator};
 use sync::Mutex;
+
+/// Alias for the wrapper type of the thread-local variable holding the local allocator.
+type ThreadLocalAllocator = MoveCell<LazyInit<fn() -> LocalAllocator, LocalAllocator>>;
 
 /// The global default allocator.
 // TODO remove these filthy function pointers.
@@ -16,15 +19,14 @@ static GLOBAL_ALLOCATOR: Mutex<LazyInit<fn() -> GlobalAllocator, GlobalAllocator
     Mutex::new(LazyInit::new(global_init));
 tls! {
     /// The thread-local allocator.
-    static THREAD_ALLOCATOR: MoveCell<LazyInit<fn() -> LocalAllocator, LocalAllocator>> =
-        MoveCell::new(LazyInit::new(local_init));
+    static THREAD_ALLOCATOR: ThreadLocalAllocator = MoveCell::new(LazyInit::new(local_init));
 }
 
 /// Initialize the global allocator.
 fn global_init() -> GlobalAllocator {
     // The initial acquired segment.
     let (aligner, initial_segment, excessive) =
-        brk::get(bookkeeper::EXTRA_ELEMENTS * 4, mem::align_of::<Block>());
+        brk::get(4 * bookkeeper::EXTRA_ELEMENTS * mem::size_of::<Block>(), mem::align_of::<Block>());
 
     // Initialize the new allocator.
     let mut res = GlobalAllocator {
@@ -42,21 +44,38 @@ fn global_init() -> GlobalAllocator {
 
 /// Initialize the local allocator.
 fn local_init() -> LocalAllocator {
+    /// The destructor of the local allocator.
+    ///
+    /// This will simply free everything to the global allocator.
+    extern fn dtor(alloc: &ThreadLocalAllocator) {
+        // This is important! If we simply moved out of the reference, we would end up with another
+        // dtor could use the value after-free. Thus we replace it by the `Unreachable` state,
+        // meaning that any request will result in panic.
+        let alloc = alloc.replace(LazyInit::unreachable());
+
+        // Lock the global allocator.
+        // TODO dumb borrowck
+        let mut global_alloc = GLOBAL_ALLOCATOR.lock();
+        let global_alloc = global_alloc.get();
+
+        // TODO, we know this is sorted, so we could abuse that fact to faster insertion in the
+        // global allocator.
+
+        alloc.into_inner().inner.for_each(move |block| global_alloc.free(block));
+    }
+
     // The initial acquired segment.
     let initial_segment = GLOBAL_ALLOCATOR
         .lock()
         .get()
-        .alloc(bookkeeper::EXTRA_ELEMENTS * 4, mem::align_of::<Block>());
+        .alloc(4 * bookkeeper::EXTRA_ELEMENTS * mem::size_of::<Block>(), mem::align_of::<Block>());
 
     unsafe {
-        // Initialize the new allocator.
-        let mut res = LocalAllocator {
-            inner: Bookkeeper::new(Vec::from_raw_parts(initial_segment, 0)),
-        };
-        // Attach the allocator to the current thread.
-        res.attach();
+        THREAD_ALLOCATOR.register_thread_destructor(dtor).unwrap();
 
-        res
+        LocalAllocator {
+            inner: Bookkeeper::new(Vec::from_raw_parts(initial_segment, 0)),
+        }
     }
 }
 
@@ -64,26 +83,24 @@ fn local_init() -> LocalAllocator {
 ///
 /// This is simply to avoid repeating ourself, so we let this take care of the hairy stuff.
 fn get_allocator<T, F: FnOnce(&mut LocalAllocator) -> T>(f: F) -> T {
-    /// A dummy used as placeholder for the temporary initializer.
-    fn dummy() -> LocalAllocator {
-        unreachable!();
-    }
-
     // Get the thread allocator.
-    let thread_alloc = THREAD_ALLOCATOR.get();
-    // Just dump some placeholding initializer in the place of the TLA.
-    let mut thread_alloc = thread_alloc.replace(LazyInit::new(dummy));
+    THREAD_ALLOCATOR.with(|thread_alloc| {
+        // Just dump some placeholding initializer in the place of the TLA.
+        let mut thread_alloc_original = thread_alloc.replace(LazyInit::unreachable());
 
-    // Call the closure involved.
-    let res = f(thread_alloc.get());
+        // Call the closure involved.
+        let res = f(thread_alloc_original.get());
 
-    // Put back the original allocator.
-    THREAD_ALLOCATOR.get().replace(thread_alloc);
+        // Put back the original allocator.
+        thread_alloc.replace(thread_alloc_original);
 
-    res
+        res
+    })
 }
 
 /// Derives `Deref` and `DerefMut` to the `inner` field.
+///
+/// This requires importing `core::ops`.
 macro_rules! derive_deref {
     ($imp:ty, $target:ty) => {
         impl ops::Deref for $imp {
@@ -139,33 +156,6 @@ pub struct LocalAllocator {
 }
 
 derive_deref!(LocalAllocator, Bookkeeper);
-
-impl LocalAllocator {
-    /// Attach this allocator to the current thread.
-    ///
-    /// This will make sure this allocator's data  is freed to the
-    pub unsafe fn attach(&mut self) {
-        extern fn dtor(ptr: *mut LocalAllocator) {
-            let alloc = unsafe { ptr::read(ptr) };
-
-            // Lock the global allocator.
-            // TODO dumb borrowck
-            let mut global_alloc = GLOBAL_ALLOCATOR.lock();
-            let global_alloc = global_alloc.get();
-
-            // Gotta' make sure no memleaks are here.
-            #[cfg(feature = "debug_tools")]
-            alloc.assert_no_leak();
-
-            // TODO, we know this is sorted, so we could abuse that fact to faster insertion in the
-            // global allocator.
-
-            alloc.inner.for_each(move |block| global_alloc.free(block));
-        }
-
-        sys::register_thread_destructor(self as *mut LocalAllocator, dtor).unwrap();
-    }
-}
 
 impl Allocator for LocalAllocator {
     #[inline]

@@ -2,9 +2,8 @@
 
 use prelude::*;
 
-use core::marker::PhantomData;
 use core::ops::Range;
-use core::{ptr, cmp, mem, ops};
+use core::{ptr, mem, ops};
 
 /// Elements required _more_ than the length as capacity.
 ///
@@ -38,8 +37,6 @@ pub struct Bookkeeper {
     /// These are **not** invariants: If these assumpptions are not held, it will simply act strange
     /// (e.g. logic bugs), but not memory unsafety.
     pool: Vec<Block>,
-    /// Is this currently reallocating?
-    reallocating: bool,
 }
 
 impl Bookkeeper {
@@ -49,11 +46,13 @@ impl Bookkeeper {
         debug_assert!(vec.capacity() >= EXTRA_ELEMENTS, "Not enough initial capacity of the vector.");
         debug_assert!(vec.is_empty(), "Initial vector isn't empty.");
 
-        Bookkeeper {
+        let res = Bookkeeper {
             pool: vec,
-            // Be careful with this!
-            .. Bookkeeper::default()
-        }
+        };
+
+        res.check();
+
+        res
     }
 
     /// Perform a binary search to find the appropriate place where the block can be insert or is
@@ -172,16 +171,6 @@ impl Bookkeeper {
             // Logging...
             log!(self.pool, "Check OK!");
         }
-    }
-
-    /// Check for memory leaks.
-    ///
-    /// This will ake sure that all the allocated blocks have been freed.
-    #[cfg(feature = "debug_tools")]
-    fn assert_no_leak(&self) {
-        assert!(self.allocated == self.pool.capacity() * mem::size_of::<Block>(), "Not all blocks \
-                freed. Total allocated space is {} ({} free blocks).", self.allocated,
-                self.pool.len());
     }
 }
 
@@ -587,6 +576,9 @@ pub trait Allocator: ops::DerefMut<Target = Bookkeeper> {
     fn push(&mut self, mut block: Block) {
         // Logging.
         log!(self.pool;self.pool.len(), "Pushing {:?}.", block);
+
+        // Some assertions...
+        debug_assert!(&block <= self.pool.last().unwrap(), "Pushing will make the list unsorted.");
 
         // Short-circuit in case on empty block.
         if !block.is_empty() {

@@ -1,5 +1,8 @@
 //! Rust allocation symbols.
 
+// TODO remove this, this is a false positive.
+#![allow(private_no_mangle_fns)]
+
 use allocator;
 
 /// Rust allocation symbol.

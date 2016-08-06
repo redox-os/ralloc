@@ -103,10 +103,10 @@ mod test {
             assert_eq!(**ptr.offset(1), b'b');
         }
 
-        let mut x = ['a', 'b'];
+        let mut y = ['a', 'b'];
 
         unsafe {
-            let ptr = Pointer::new(&mut x[0] as *mut char);
+            let ptr = Pointer::new(&mut y[0] as *mut char);
             assert_eq!(**ptr.clone().cast::<[char; 1]>(), ['a']);
             assert_eq!(**ptr.offset(1), 'b');
         }

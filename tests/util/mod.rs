@@ -1,7 +1,5 @@
 //! Test automation.
 
-use ralloc;
-
 use std::{thread, mem};
 
 /// Magic trait for boxed `FnOnce`s.

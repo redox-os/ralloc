@@ -37,7 +37,7 @@ fn default_oom_handler() -> ! {
 /// The rule of thumb is that this should be called, if and only if unwinding (which allocates)
 /// will hit the same error.
 pub fn oom() -> ! {
-    if let Some(handler) = THREAD_OOM_HANDLER.get().replace(None) {
+    if let Some(handler) = THREAD_OOM_HANDLER.with(|x| x.replace(None)) {
         // There is a local allocator available.
         handler();
     } else {
@@ -63,10 +63,13 @@ pub fn set_oom_handler(handler: fn() -> !) {
 /// This might panic if a thread OOM handler already exists.
 #[inline]
 pub fn set_thread_oom_handler(handler: fn() -> !) {
-    let mut thread_alloc = THREAD_OOM_HANDLER.get();
-    let out = thread_alloc.replace(Some(handler));
+    THREAD_OOM_HANDLER.with(|thread_oom| {
+        // Replace it with the new handler.
+        let res = thread_oom.replace(Some(handler));
 
-    debug_assert!(out.is_none());
+        // Make sure that it doesn't override another handler.
+        debug_assert!(res.is_none());
+    });
 }
 
 #[cfg(test)]
@@ -88,6 +91,7 @@ mod test {
     #[should_panic]
     fn test_panic_thread_oom() {
         fn infinite() -> ! {
+            #[allow(empty_loop)]
             loop {}
         }
         fn panic() -> ! {
@@ -95,7 +99,7 @@ mod test {
         }
 
         set_oom_handler(infinite);
-        set_thread_oom_handler(infinite);
+        set_thread_oom_handler(panic);
         oom();
     }
 }
