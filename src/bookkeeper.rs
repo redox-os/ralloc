@@ -7,8 +7,16 @@ use core::{ptr, mem, ops};
 
 /// Elements required _more_ than the length as capacity.
 ///
-/// See guarantee 4.
-pub const EXTRA_ELEMENTS: usize = 2;
+/// This represents how many elements that are needed to conduct a `reserve` without the
+/// stack overflowing, plus one (representing the new element):
+///
+/// 1. Aligner.
+/// 2. Excessive space.
+/// 3. The old buffer.
+/// 4. The pushed or inserted block.
+///
+/// See assumption 4.
+pub const EXTRA_ELEMENTS: usize = 4;
 
 #[cfg(feature = "alloc_id")]
 use core::sync::atomic::{self, AtomicUsize};
@@ -38,9 +46,9 @@ pub struct Bookkeeper {
     /// 2. No two consecutive or empty block delimited blocks are adjacent, except if the right
     ///    block is empty.
     /// 3. There are no trailing empty blocks.
-    /// 4. The capacity is always two blocks more than the length (this is due to reallocation
-    ///    pushing at maximum two elements, so we reserve two extra to allow pushing one
-    ///    additional element without unbounded recursion).
+    /// 4. The capacity is always `EXTRA_ELEMENTS` blocks more than the length (this is due to
+    ///    reallocation pushing at maximum two elements, so we reserve two or more extra to allow
+    ///    pushing one additional element without unbounded recursion).
     ///
     /// These are **not** invariants: If these assumpptions are not held, it will simply act strange
     /// (e.g. logic bugs), but not memory unsafety.
@@ -164,6 +172,10 @@ impl Bookkeeper {
 
             // Reverse iterator over the blocks.
             let mut it = self.pool.iter().enumerate().rev();
+
+            // Check that the capacity is large enough.
+            assert!(self.pool.len() + EXTRA_ELEMENTS <= self.pool.capacity(), "The capacity should \
+                    be at least {} more than the length of the pool.", EXTRA_ELEMENTS);
 
             if let Some((_, x)) = it.next() {
                 // Make sure there are no leading empty blocks.
@@ -631,9 +643,12 @@ pub trait Allocator: ops::DerefMut<Target = Bookkeeper> {
 
     /// Reserve some number of elements.
     fn reserve(&mut self, min_cap: usize) {
+        // Logging.
+        log!(self;min_cap, "Reserving {}.", min_cap);
+
         if self.pool.capacity() < self.pool.len() + EXTRA_ELEMENTS || self.pool.capacity() < min_cap {
-            // One extra for the old buffer.
-            let new_cap = (min_cap + EXTRA_ELEMENTS) * 2 + 16 + 1;
+            // Reserve a little extra for performance reasons.
+            let new_cap = (min_cap + EXTRA_ELEMENTS) * 2 + 16;
 
             // Catch 'em all.
             debug_assert!(new_cap > self.pool.capacity(), "Reserve shrinks?!");
@@ -747,7 +762,8 @@ pub trait Allocator: ops::DerefMut<Target = Bookkeeper> {
         unsafe {
             // TODO clean this mess up.
 
-            {
+            // We will only extend the length if we were unable to fit it into the current length.
+            if ind + n == self.pool.len() {
                 // We will move a block into reserved memory but outside of the vec's bounds. For
                 // that reason, we push an uninitialized element to extend the length, which will
                 // be assigned in the memcpy.
