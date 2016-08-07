@@ -646,7 +646,7 @@ pub trait Allocator: ops::DerefMut<Target = Bookkeeper> {
         // Logging.
         log!(self;min_cap, "Reserving {}.", min_cap);
 
-        if self.pool.capacity() < self.pool.len() + EXTRA_ELEMENTS || self.pool.capacity() < min_cap {
+        if self.pool.capacity() < self.pool.len() + EXTRA_ELEMENTS || self.pool.capacity() < min_cap + EXTRA_ELEMENTS {
             // Reserve a little extra for performance reasons.
             let new_cap = (min_cap + EXTRA_ELEMENTS) * 2 + 16;
 
@@ -736,9 +736,6 @@ pub trait Allocator: ops::DerefMut<Target = Bookkeeper> {
         debug_assert!(self.find(&block) == ind, "Block is not inserted at the appropriate index.");
         debug_assert!(!block.is_empty(), "Inserting an empty block.");
 
-        // Reserve space.
-        unborrow!(self.reserve(self.pool.len() + 1));
-
         // Find the next gap, where a used block were.
         let n = {
             // The element we search for.
@@ -764,6 +761,10 @@ pub trait Allocator: ops::DerefMut<Target = Bookkeeper> {
 
             // We will only extend the length if we were unable to fit it into the current length.
             if ind + n == self.pool.len() {
+                // Reserve space.
+                // FIXME This breaks order!
+                unborrow!(self.reserve(self.pool.len() + 1));
+
                 // We will move a block into reserved memory but outside of the vec's bounds. For
                 // that reason, we push an uninitialized element to extend the length, which will
                 // be assigned in the memcpy.
