@@ -3,12 +3,13 @@
 //! Blocks are the main unit for the memory bookkeeping. A block is a simple construct with a
 //! `Pointer` pointer and a size. Occupied (non-free) blocks are represented by a zero-sized block.
 
+// TODO check the allow(cast_possible_wrap)s again.
+
 use prelude::*;
 
 use {sys, fail};
 
 use core::{ptr, cmp, mem, fmt};
-use core::convert::TryInto;
 
 /// A contiguous memory block.
 ///
@@ -46,11 +47,12 @@ impl Block {
 
     /// BRK allocate a block.
     #[inline]
+    #[allow(cast_possible_wrap)]
     pub fn brk(size: usize) -> Block {
         Block {
             size: size,
             ptr: unsafe {
-                Pointer::new(sys::sbrk(size.try_into().unwrap()).unwrap_or_else(|()| fail::oom()))
+                Pointer::new(sys::sbrk(size as isize).unwrap_or_else(|()| fail::oom()))
             },
         }
     }

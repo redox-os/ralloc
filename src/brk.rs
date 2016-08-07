@@ -23,7 +23,7 @@ fn canonicalize_space(min: usize) -> usize {
     /// The minimum size to be BRK'd.
     const BRK_MIN: usize = 1024;
     /// The maximal amount of _extra_ elements.
-    const BRK_MAX_EXTRA: usize = 4 * 65536;
+    const BRK_MAX_EXTRA: usize = 65536;
 
     let res = cmp::max(BRK_MIN, min + cmp::min(BRK_MULTIPLIER * min, BRK_MAX_EXTRA));
 

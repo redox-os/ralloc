@@ -32,9 +32,9 @@ impl<T: Leak> Vec<T> {
     #[inline]
     pub unsafe fn from_raw_parts(block: Block, len: usize) -> Vec<T> {
         Vec {
-            cap: block.size() / mem::size_of::<T>(),
-            ptr: Pointer::new(*Pointer::from(block) as *mut T),
             len: len,
+            cap: block.size() / mem::size_of::<T>(),
+            ptr: Pointer::from(block).cast(),
         }
     }
 
@@ -45,8 +45,7 @@ impl<T: Leak> Vec<T> {
     ///
     /// # Panics
     ///
-    /// This panics if the vector is bigger than the block. Additional checks might be done in
-    /// debug mode.
+    /// This panics if the vector is bigger than the block.
     pub fn refill(&mut self, block: Block) -> Block {
         // Calculate the new capacity.
         let new_cap = block.size() / mem::size_of::<T>();
@@ -54,8 +53,6 @@ impl<T: Leak> Vec<T> {
         // Make some assertions.
         assert!(self.len <= new_cap, "Block not large enough to cover the vector.");
         assert!(block.aligned_to(mem::align_of::<T>()), "Block not aligned.");
-
-        self.check(&block);
 
         let old = mem::replace(self, Vec::default());
 
@@ -130,20 +127,6 @@ impl<T: Leak> Vec<T> {
 
         self.len = len;
     }
-
-    /// Check the validity of a block with respect to the vector.
-    ///
-    /// Blocks not passing this checks might lead to logic errors when used as buffer for the
-    /// vector.
-    ///
-    /// This is a NO-OP in release mode.
-    #[inline]
-    fn check(&self, block: &Block) {
-        debug_assert!(block.size() % mem::size_of::<T>() == 0, "The size of T does not divide the \
-                      block's size.");
-        debug_assert!(self.len <= block.size() / mem::size_of::<T>(), "Block not large enough to \
-                      cover the vector.");
-    }
 }
 
 // TODO remove this in favour of `derive` when rust-lang/rust#35263 is fixed.
@@ -170,7 +153,7 @@ impl<T: Leak> ops::Deref for Vec<T> {
     #[inline]
     fn deref(&self) -> &[T] {
         unsafe {
-            slice::from_raw_parts(*self.ptr as *const _, self.len)
+            slice::from_raw_parts(*self.ptr as *const T, self.len)
         }
     }
 }
@@ -179,7 +162,7 @@ impl<T: Leak> ops::DerefMut for Vec<T> {
     #[inline]
     fn deref_mut(&mut self) -> &mut [T] {
         unsafe {
-            slice::from_raw_parts_mut(*self.ptr as *mut _, self.len)
+            slice::from_raw_parts_mut(*self.ptr as *mut T, self.len)
         }
     }
 }

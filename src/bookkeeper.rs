@@ -578,7 +578,8 @@ pub trait Allocator: ops::DerefMut<Target = Bookkeeper> {
         log!(self.pool;self.pool.len(), "Pushing {:?}.", block);
 
         // Some assertions...
-        debug_assert!(&block <= self.pool.last().unwrap(), "Pushing will make the list unsorted.");
+        debug_assert!(self.pool.is_empty() || &block <= self.pool.last().unwrap(), "Pushing will \
+                      make the list unsorted.");
 
         // Short-circuit in case on empty block.
         if !block.is_empty() {
@@ -752,7 +753,7 @@ pub trait Allocator: ops::DerefMut<Target = Bookkeeper> {
         // Logging.
         log!(self.pool;ind, "Removing block.");
 
-        if ind == self.pool.len() - 1 {
+        if ind + 1 == self.pool.len() {
             let res = self.pool[ind].pop();
             // Make sure there are no trailing empty blocks.
             let new_len = self.pool.len() - self.pool.iter().rev().take_while(|x| x.is_empty()).count();

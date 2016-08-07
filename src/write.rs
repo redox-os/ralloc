@@ -41,20 +41,9 @@ impl fmt::Write for Writer {
 /// allows for aborting, non-allocating panics when running the tests.
 #[macro_export]
 macro_rules! assert {
-    ($e:expr) => {{
-        use write;
-
-        use core::intrinsics;
-        use core::fmt::Write;
-
-        if !$e {
-            let _ = write!(write::Writer::stderr(), "assertion failed at {}:{}: {}", file!(),
-                           line!(), stringify!($e));
-
-            #[allow(unused_unsafe)]
-            unsafe { intrinsics::abort() }
-        }
-    }};
+    ($e:expr) => {
+        assert!($e, "No description.");
+    };
     ($e:expr, $( $arg:expr ),*) => {{
         use write;
 
