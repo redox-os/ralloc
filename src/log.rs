@@ -16,7 +16,7 @@ macro_rules! log {
     ($pool:expr, $( $arg:expr ),*) => {
         log!($pool;(), $( $arg ),*);
     };
-    ($pool:expr;$cur:expr, $( $arg:expr ),*) => {{
+    ($bk:expr;$cur:expr, $( $arg:expr ),*) => {{
         #[cfg(feature = "log")]
         {
             use core::fmt::Write;
@@ -26,9 +26,9 @@ macro_rules! log {
 
             // Print the pool state.
             let mut stderr = write::Writer::stderr();
-            let _ = write!(stderr, "{:10?} : ", log::internal::BlockLogger {
+            let _ = write!(stderr, "({:2})   {:10?} : ", $bk.id, log::internal::BlockLogger {
                 cur: $cur.clone().into_cursor(),
-                blocks: &$pool,
+                blocks: &$bk.pool,
             });
 
             // Print the log message.
@@ -60,6 +60,7 @@ pub mod internal {
         /// formatter if the underlying condition is true.
         ///
         /// For example, a plain position cursor will write `"|"` when `n == self.pos`.
+        // TODO use an iterator instead.
         fn at(&self, f: &mut fmt::Formatter, n: usize) -> fmt::Result;
 
         /// The after hook.

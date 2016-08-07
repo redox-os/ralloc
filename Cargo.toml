@@ -34,10 +34,11 @@ codegen-units = 1
 [features]
 default = ["allocator", "clippy"]
 # ---
+alloc_id = []
 allocator = []
 debug_tools = []
 libc_write = []
-log = ["libc_write"]
+log = ["libc_write", "alloc_id"]
 security = []
 testing = ["log", "libc_write", "debug_tools"]
 unsafe_no_brk_lock = []

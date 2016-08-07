@@ -10,6 +10,14 @@ use core::{ptr, mem, ops};
 /// See guarantee 4.
 pub const EXTRA_ELEMENTS: usize = 2;
 
+#[cfg(feature = "alloc_id")]
+use core::sync::atomic::{self, AtomicUsize};
+/// The bookkeeper ID count.
+///
+/// This is atomically incremented whenever a new `Bookkeeper` is created.
+#[cfg(feature = "alloc_id")]
+static BOOKKEEPER_ID_COUNTER: AtomicUsize = AtomicUsize::new(0);
+
 /// The memory bookkeeper.
 ///
 /// This stores data about the state of the allocator, and in particular, the free memory.
@@ -37,6 +45,11 @@ pub struct Bookkeeper {
     /// These are **not** invariants: If these assumpptions are not held, it will simply act strange
     /// (e.g. logic bugs), but not memory unsafety.
     pool: Vec<Block>,
+    /// The allocator ID.
+    ///
+    /// This is simply to be able to distinguish allocators in the locks.
+    #[cfg(feature = "alloc_id")]
+    id: usize,
 }
 
 impl Bookkeeper {
@@ -46,6 +59,14 @@ impl Bookkeeper {
         debug_assert!(vec.capacity() >= EXTRA_ELEMENTS, "Not enough initial capacity of the vector.");
         debug_assert!(vec.is_empty(), "Initial vector isn't empty.");
 
+        // TODO, when added use expr field attributes
+        #[cfg(feature = "alloc_id")]
+        let res = Bookkeeper {
+            pool: vec,
+            // Increment the ID counter to get a brand new ID.
+            id: BOOKKEEPER_ID_COUNTER.fetch_add(1, atomic::Ordering::SeqCst),
+        };
+        #[cfg(not(feature = "alloc_id"))]
         let res = Bookkeeper {
             pool: vec,
         };
@@ -63,7 +84,7 @@ impl Bookkeeper {
     fn find(&mut self, block: &Block) -> usize {
         // TODO optimize this function.
         // Logging.
-        log!(self.pool, "Searching (exact) for {:?}.", block);
+        log!(self, "Searching (exact) for {:?}.", block);
 
         let ind = match self.pool.binary_search(block) {
             Ok(x) | Err(x) => x,
@@ -86,7 +107,7 @@ impl Bookkeeper {
     fn find_bound(&mut self, block: &Block) -> Range<usize> {
         // TODO optimize this function.
         // Logging.
-        log!(self.pool, "Searching (bounds) for {:?}.", block);
+        log!(self, "Searching (bounds) for {:?}.", block);
 
         let mut left_ind = match self.pool.binary_search(block) {
             Ok(x) | Err(x) => x,
@@ -139,7 +160,7 @@ impl Bookkeeper {
     fn check(&self) {
         if cfg!(debug_assertions) {
             // Logging.
-            log!(self.pool, "Checking...");
+            log!(self, "Checking...");
 
             // Reverse iterator over the blocks.
             let mut it = self.pool.iter().enumerate().rev();
@@ -169,7 +190,7 @@ impl Bookkeeper {
             }
 
             // Logging...
-            log!(self.pool, "Check OK!");
+            log!(self, "Check OK!");
         }
     }
 }
@@ -244,7 +265,7 @@ pub trait Allocator: ops::DerefMut<Target = Bookkeeper> {
         // TODO: scan more intelligently.
 
         // Logging.
-        log!(self.pool, "Allocating {} bytes with alignment {}.", size, align);
+        log!(self, "Allocating {} bytes with alignment {}.", size, align);
 
         if let Some((n, b)) = self.pool.iter_mut().enumerate().filter_map(|(n, i)| {
             if i.size() >= size {
@@ -336,7 +357,7 @@ pub trait Allocator: ops::DerefMut<Target = Bookkeeper> {
     #[inline]
     fn free(&mut self, block: Block) {
         // Just logging for the unlucky people debugging this shit. No problem.
-        log!(self.pool, "Freeing {:?}...", block);
+        log!(self, "Freeing {:?}...", block);
 
         // Binary search for the block.
         let bound = self.find_bound(&block);
@@ -381,7 +402,7 @@ pub trait Allocator: ops::DerefMut<Target = Bookkeeper> {
         let ind = self.find_bound(&block);
 
         // Logging.
-        log!(self.pool;ind, "Reallocating {:?} to size {} with align {}...", block, new_size, align);
+        log!(self;ind, "Reallocating {:?} to size {} with align {}...", block, new_size, align);
 
         // Try to do an inplace reallocation.
         match self.realloc_inplace_bound(ind, block, new_size) {
@@ -424,7 +445,7 @@ pub trait Allocator: ops::DerefMut<Target = Bookkeeper> {
     #[inline]
     fn realloc_inplace(&mut self, block: Block, new_size: usize) -> Result<Block, Block> {
         // Logging.
-        log!(self.pool, "Reallocating {:?} inplace to {}...", block, new_size);
+        log!(self, "Reallocating {:?} inplace to {}...", block, new_size);
 
         // Find the bounds of given block.
         let bound = self.find_bound(&block);
@@ -444,7 +465,7 @@ pub trait Allocator: ops::DerefMut<Target = Bookkeeper> {
     /// See [`realloc_inplace`](#method.realloc_inplace.html) for more information.
     fn realloc_inplace_bound(&mut self, ind: Range<usize>, mut block: Block, new_size: usize) -> Result<Block, Block> {
         // Logging.
-        log!(self.pool;ind, "Try inplace reallocating {:?} to size {}.", block, new_size);
+        log!(self;ind, "Try inplace reallocating {:?} to size {}.", block, new_size);
 
         /// Assertions...
         debug_assert!(self.find(&block) == ind.start, "Block is not inserted at the appropriate \
@@ -452,7 +473,7 @@ pub trait Allocator: ops::DerefMut<Target = Bookkeeper> {
 
         if new_size <= block.size() {
             // Shrink the block.
-            log!(self.pool;ind, "Shrinking {:?}.", block);
+            log!(self;ind, "Shrinking {:?}.", block);
 
             // Split the block in two segments, the main segment and the excessive segment.
             let (block, excessive) = block.split(new_size);
@@ -478,7 +499,7 @@ pub trait Allocator: ops::DerefMut<Target = Bookkeeper> {
             // the current block.
             if mergable {
                 // Logging...
-                log!(self.pool;ind, "Merging {:?} to the right.", block);
+                log!(self;ind, "Merging {:?} to the right.", block);
 
                 // We'll merge it with the block at the end of the range.
                 block.merge_right(&mut self.remove_at(ind.end)).unwrap();
@@ -514,7 +535,7 @@ pub trait Allocator: ops::DerefMut<Target = Bookkeeper> {
     #[inline]
     fn free_bound(&mut self, ind: Range<usize>, mut block: Block) {
         // Logging.
-        log!(self.pool;ind, "Freeing {:?}.", block);
+        log!(self;ind, "Freeing {:?}.", block);
 
         // Short circuit in case of empty block.
         if block.is_empty() { return; }
@@ -561,7 +582,7 @@ pub trait Allocator: ops::DerefMut<Target = Bookkeeper> {
     /// The returned pointer is guaranteed to be aligned to `align`.
     fn alloc_external(&mut self, size: usize, align: usize) -> Block {
         // Logging.
-        log!(self.pool, "Fresh allocation of size {} with alignment {}.", size, align);
+        log!(self, "Fresh allocation of size {} with alignment {}.", size, align);
 
         // Break it to me!
         let res = self.alloc_fresh(size, align);
@@ -575,10 +596,10 @@ pub trait Allocator: ops::DerefMut<Target = Bookkeeper> {
     /// Push an element without reserving.
     fn push(&mut self, mut block: Block) {
         // Logging.
-        log!(self.pool;self.pool.len(), "Pushing {:?}.", block);
+        log!(self;self.pool.len(), "Pushing {:?}.", block);
 
         // Some assertions...
-        debug_assert!(self.pool.is_empty() || &block <= self.pool.last().unwrap(), "Pushing will \
+        debug_assert!(self.pool.is_empty() || &block > self.pool.last().unwrap(), "Pushing will \
                       make the list unsorted.");
 
         // Short-circuit in case on empty block.
@@ -689,7 +710,7 @@ pub trait Allocator: ops::DerefMut<Target = Bookkeeper> {
     #[inline]
     fn insert(&mut self, ind: usize, block: Block) {
         // Logging.
-        log!(self.pool;ind, "Inserting block {:?}...", block);
+        log!(self;ind, "Inserting block {:?}...", block);
 
         // Bound check.
         assert!(self.pool.len() >= ind, "Insertion out of bounds.");
@@ -721,7 +742,7 @@ pub trait Allocator: ops::DerefMut<Target = Bookkeeper> {
         };
 
         // Log the operation.
-        log!(self.pool;ind, "Moving {} blocks to the right.", n);
+        log!(self;ind, "Moving {} blocks to the right.", n);
 
         unsafe {
             // TODO clean this mess up.
@@ -751,7 +772,7 @@ pub trait Allocator: ops::DerefMut<Target = Bookkeeper> {
     /// Remove a block.
     fn remove_at(&mut self, ind: usize) -> Block {
         // Logging.
-        log!(self.pool;ind, "Removing block.");
+        log!(self;ind, "Removing block.");
 
         if ind + 1 == self.pool.len() {
             let res = self.pool[ind].pop();
