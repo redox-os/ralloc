@@ -12,15 +12,15 @@ readme = "README.md"
 keywords = ["alloc", "malloc", "allocator", "ralloc", "redox"]
 license = "MIT"
 
+[dependencies]
+unborrow = "0.3.0"
+
 [dependencies.ralloc_shim]
 path = "shim"
 
 [dependencies.clippy]
 version = "0.0.80"
 optional = true
-
-[dependencies.unborrow]
-git = "https://github.com/durka/unborrow.git"
 
 [profile.release]
 panic = "abort"

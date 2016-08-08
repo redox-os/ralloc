@@ -160,36 +160,9 @@ derive_deref!(LocalAllocator, Bookkeeper);
 impl Allocator for LocalAllocator {
     #[inline]
     fn alloc_fresh(&mut self, size: usize, align: usize) -> Block {
-        /// Canonicalize the requested space.
-        ///
-        /// We request excessive space to the upstream allocator to avoid repeated requests and
-        /// lock contentions.
-        #[inline]
-        fn canonicalize_space(min: usize) -> usize {
-            // TODO tweak this.
-
-            // To avoid having mega-allocations allocate way to much space, we
-            // have a maximal extra space limit.
-            if min > 8192 { min } else {
-                // To avoid paying for short-living or little-allocating threads, we have no minimum.
-                // Instead we multiply.
-                min * 4
-                // This won't overflow due to the conditition of this branch.
-            }
-        }
-
-        // Get the block from the global allocator.
-        let (res, excessive) = GLOBAL_ALLOCATOR.lock()
-            .get()
-            .alloc(canonicalize_space(size), align)
-            .split(size);
-
-        // Free the excessive space to the current allocator. Note that you cannot simply push
-        // (which is the case for SBRK), due the block not necessarily being above all the other
-        // blocks in the pool. For this reason, we let `free` handle the search and so on.
-        self.free(excessive);
-
-        res
+        // Get the block from the global allocator. Please note that we cannot canonicalize `size`,
+        // due to freeing excessive blocks would change the order.
+        GLOBAL_ALLOCATOR.lock().get().alloc(size, align)
     }
 }
 

@@ -79,6 +79,7 @@ impl Bookkeeper {
             pool: vec,
         };
 
+        log!(res, "Bookkeeper created.");
         res.check();
 
         res
@@ -148,6 +149,9 @@ impl Bookkeeper {
     /// Technically, this could be done through an iterator, but this, more unidiomatic, way is
     /// slightly faster in some cases.
     pub fn for_each<F: FnMut(Block)>(mut self, mut f: F) {
+        // Logging.
+        log!(self, "Iterating over the blocks of the bookkeeper...");
+
         // Run over all the blocks in the pool.
         while let Some(i) = self.pool.pop() {
             f(i);
@@ -229,6 +233,11 @@ pub trait Allocator: ops::DerefMut<Target = Bookkeeper> {
     ///
     /// The returned pointer is assumed to be aligned to `align`. If this is not held, all future
     /// guarantees are invalid.
+    ///
+    /// # Assumptions
+    ///
+    /// This is assumed to not modify the order. If some block `b` is associated with index `i`
+    /// prior to call of this function, it should be too after it.
     fn alloc_fresh(&mut self, size: usize, align: usize) -> Block;
 
     /// Allocate a chunk of memory.
@@ -623,8 +632,10 @@ pub trait Allocator: ops::DerefMut<Target = Bookkeeper> {
                 }
             }
 
-            // Reserve space.
-            unborrow!(self.reserve(self.pool.len() + 1));
+            // Reserve space and free the old buffer.
+            if let Some(x) = unborrow!(self.reserve(self.pool.len() + 1)) {
+                self.free(x);
+            }
 
 
             // Merging failed. Note that trailing empty blocks are not allowed, hence the last block is
@@ -641,8 +652,13 @@ pub trait Allocator: ops::DerefMut<Target = Bookkeeper> {
         self.check();
     }
 
-    /// Reserve some number of elements.
-    fn reserve(&mut self, min_cap: usize) {
+    /// Reserve some number of elements, and return the old buffer's block.
+    ///
+    /// # Assumptions
+    ///
+    /// This is assumed to not modify the order. If some block `b` is associated with index `i`
+    /// prior to call of this function, it should be too after it.
+    fn reserve(&mut self, min_cap: usize) -> Option<Block> {
         // Logging.
         log!(self;min_cap, "Reserving {}.", min_cap);
 
@@ -655,10 +671,10 @@ pub trait Allocator: ops::DerefMut<Target = Bookkeeper> {
 
             // Break it to me!
             let new_buf = self.alloc_external(new_cap * mem::size_of::<Block>(), mem::align_of::<Block>());
-            let old_buf = self.pool.refill(new_buf);
 
-            // Free the old buffer.
-            self.free(old_buf);
+            Some(self.pool.refill(new_buf))
+        } else {
+            None
         }
     }
 
@@ -666,6 +682,10 @@ pub trait Allocator: ops::DerefMut<Target = Bookkeeper> {
     ///
     /// If the space is non-empty, the elements will be pushed filling out the empty gaps to the
     /// right.
+    ///
+    /// # Warning
+    ///
+    /// This might in fact break the order.
     ///
     /// # Panics
     ///
@@ -756,30 +776,36 @@ pub trait Allocator: ops::DerefMut<Target = Bookkeeper> {
         // Log the operation.
         log!(self;ind, "Moving {} blocks to the right.", n);
 
+        // The old vector's buffer.
+        let mut old_buf = None;
+
+        // We will only extend the length if we were unable to fit it into the current length.
+        if ind + n == self.pool.len() {
+            // Reserve space. This does not break order, due to the assumption that
+            // `reserve` never breaks order.
+            old_buf = unborrow!(self.reserve(self.pool.len() + 1));
+
+            // We will move a block into reserved memory but outside of the vec's bounds. For
+            // that reason, we push an uninitialized element to extend the length, which will
+            // be assigned in the memcpy.
+            let res = self.pool.push(unsafe { mem::uninitialized() });
+
+            // Just some assertions...
+            debug_assert!(res.is_ok(), "Push failed (buffer full).");
+        }
+
         unsafe {
-            // TODO clean this mess up.
-
-            // We will only extend the length if we were unable to fit it into the current length.
-            if ind + n == self.pool.len() {
-                // Reserve space.
-                // FIXME This breaks order!
-                unborrow!(self.reserve(self.pool.len() + 1));
-
-                // We will move a block into reserved memory but outside of the vec's bounds. For
-                // that reason, we push an uninitialized element to extend the length, which will
-                // be assigned in the memcpy.
-                let res = self.pool.push(mem::uninitialized());
-
-                // Just some assertions...
-                debug_assert!(res.is_ok(), "Push failed (buffer full).");
-            }
-
             // Memmove the elements to make a gap to the new block.
             ptr::copy(self.pool.get_unchecked(ind) as *const Block,
                       self.pool.get_unchecked_mut(ind + 1) as *mut Block, n);
 
             // Set the element.
             ptr::write(self.pool.get_unchecked_mut(ind), block);
+        }
+
+        // Free the old buffer, if it exists.
+        if let Some(block) = old_buf {
+            self.free(block);
         }
 
         // Check consistency.

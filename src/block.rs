@@ -159,9 +159,7 @@ impl Block {
     /// This marks it as free, and returns the old value.
     #[inline]
     pub fn pop(&mut self) -> Block {
-        // TODO durka/unborrow#2 is blocking.
-        let empty = Block::empty(self.ptr.clone());
-        mem::replace(self, empty)
+        unborrow!(mem::replace(self, Block::empty(self.ptr.clone())))
     }
 
     /// Is this block placed left to the given other block?
