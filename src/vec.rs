@@ -4,6 +4,8 @@ use prelude::*;
 
 use core::{slice, ops, mem, ptr};
 
+use leak::Leak;
+
 /// A low-level vector primitive.
 ///
 /// This does not perform allocation nor reallaction, thus these have to be done manually.

@@ -2,16 +2,14 @@
 
 extern crate ralloc_shim as shim;
 
-use core::mem;
+use prelude::*;
 
-#[cfg(not(feature = "unsafe_no_brk_lock"))]
-use sync;
+use core::mem;
 
 /// The BRK mutex.
 ///
 /// This is used for avoiding data races in multiple allocator.
-#[cfg(not(feature = "unsafe_no_brk_lock"))]
-static BRK_MUTEX: sync::Mutex<()> = sync::Mutex::new(());
+static BRK_MUTEX: Mutex<()> = Mutex::new(());
 
 /// Increment data segment of this process by some, _n_, return a pointer to the new data segment
 /// start.

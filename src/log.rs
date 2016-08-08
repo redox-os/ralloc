@@ -16,13 +16,16 @@ macro_rules! log {
     ($pool:expr, $( $arg:expr ),*) => {
         log!($pool;(), $( $arg ),*);
     };
-    ($bk:expr;$cur:expr, $( $arg:expr ),*) => {{
+    ($bk:expr;$cur:expr, $( $arg:expr ),*) => {
         #[cfg(feature = "log")]
         {
             use core::fmt::Write;
 
             use {write, log};
             use log::internal::IntoCursor;
+
+            // To avoid cluttering the lines, we acquire a lock.
+            let _lock = log::internal::LINE_LOCK.lock();
 
             // Print the pool state.
             let mut stderr = write::Writer::stderr();
@@ -35,7 +38,7 @@ macro_rules! log {
             let _ = write!(stderr, $( $arg ),*);
             let _ = writeln!(stderr, " (at {}:{})", file!(), line!());
         }
-    }};
+    };
 }
 
 /// Top secret place-holding module.
@@ -48,6 +51,11 @@ pub mod internal {
 
     use core::cell::Cell;
     use core::ops::Range;
+
+    /// The line lock.
+    ///
+    /// This lock is used to avoid bungling and intertwining lines.
+    pub static LINE_LOCK: Mutex<()> = Mutex::new(());
 
     /// A "cursor".
     ///

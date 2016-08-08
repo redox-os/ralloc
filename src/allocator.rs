@@ -6,17 +6,16 @@ use prelude::*;
 
 use core::{mem, ops};
 
-use {brk, tls};
+use {brk, tls, sync};
 use bookkeeper::{self, Bookkeeper, Allocator};
-use sync::Mutex;
 
 /// Alias for the wrapper type of the thread-local variable holding the local allocator.
 type ThreadLocalAllocator = MoveCell<LazyInit<fn() -> LocalAllocator, LocalAllocator>>;
 
 /// The global default allocator.
 // TODO remove these filthy function pointers.
-static GLOBAL_ALLOCATOR: Mutex<LazyInit<fn() -> GlobalAllocator, GlobalAllocator>> =
-    Mutex::new(LazyInit::new(global_init));
+static GLOBAL_ALLOCATOR: sync::Mutex<LazyInit<fn() -> GlobalAllocator, GlobalAllocator>> =
+    sync::Mutex::new(LazyInit::new(global_init));
 tls! {
     /// The thread-local allocator.
     static THREAD_ALLOCATOR: ThreadLocalAllocator = MoveCell::new(LazyInit::new(local_init));
