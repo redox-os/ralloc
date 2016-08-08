@@ -3,12 +3,19 @@
 //! This will replace the assertion macros to avoid deadlocks in panics, by utilizing a
 //! non-allocating writing primitive.
 
+use prelude::*;
+
 use core::fmt;
 
 extern {
     /// Write a buffer to a file descriptor.
     fn write(fd: i32, buff: *const u8, size: usize) -> isize;
 }
+
+/// The line lock.
+///
+/// This lock is used to avoid bungling and intertwining lines.
+pub static LINE_LOCK: Mutex<()> = Mutex::new(());
 
 /// A direct writer.
 ///
@@ -51,6 +58,9 @@ macro_rules! assert {
         use core::fmt::Write;
 
         if !$e {
+            // To avoid cluttering the lines, we acquire a lock.
+            let _lock = write::LINE_LOCK.lock();
+
             let _ = write!(write::Writer::stderr(), "assertion failed at {}:{}: `{}` - ", file!(),
                            line!(), stringify!($e));
             let _ = writeln!(write::Writer::stderr(), $( $arg ),*);
