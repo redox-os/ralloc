@@ -28,15 +28,15 @@ macro_rules! log {
             let _lock = write::LINE_LOCK.lock();
 
             // Print the pool state.
-            let mut stderr = write::Writer::stderr();
-            let _ = write!(stderr, "({:2})   {:10?} : ", $bk.id, log::internal::BlockLogger {
+            let mut log = write::Writer::new();
+            let _ = write!(log, "({:2})   {:10?} : ", $bk.id, log::internal::BlockLogger {
                 cur: $cur.clone().into_cursor(),
                 blocks: &$bk.pool,
             });
 
             // Print the log message.
-            let _ = write!(stderr, $( $arg ),*);
-            let _ = writeln!(stderr, " (at {}:{})", file!(), line!());
+            let _ = write!(log, $( $arg ),*);
+            let _ = writeln!(log, " (at {}:{})", file!(), line!());
         }
     };
 }

@@ -191,7 +191,7 @@ impl Bookkeeper {
 
             if let Some((_, x)) = it.next() {
                 // Make sure there are no leading empty blocks.
-                assert!(!x.is_empty());
+                assert!(!x.is_empty(), "The leading block is empty.");
 
                 let mut next = x;
                 for (n, i) in it {
@@ -212,9 +212,6 @@ impl Bookkeeper {
                 // Check for trailing empty blocks.
                 assert!(!self.pool.last().unwrap().is_empty(), "Trailing empty blocks.");
             }
-
-            // Logging...
-            log!(self, "Check OK!");
         }
     }
 }

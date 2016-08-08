@@ -12,7 +12,16 @@ pub use libc::sched_yield;
 
 extern {
     /// Change the data segment. See `man sbrk`.
-    pub fn sbrk(_: libc::intptr_t) -> *const libc::c_void;
+    pub fn sbrk(ptr: libc::intptr_t) -> *const libc::c_void;
+    /// Write a buffer to a file descriptor.
+    fn write(fd: libc::c_int, buff: *const libc::c_void, size: libc::size_t) -> libc::ssize_t;
+}
+
+/// Write to the log.
+///
+/// This points to stderr, but could be changed arbitrarily.
+pub fn log(s: &str) -> libc::ssize_t {
+    unsafe { write(2, s.as_ptr() as *const libc::c_void, s.len()) }
 }
 
 /// Thread destructors for Linux.

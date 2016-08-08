@@ -7,36 +7,28 @@ use prelude::*;
 
 use core::fmt;
 
-extern {
-    /// Write a buffer to a file descriptor.
-    fn write(fd: i32, buff: *const u8, size: usize) -> isize;
-}
+use sys;
 
 /// The line lock.
 ///
 /// This lock is used to avoid bungling and intertwining lines.
 pub static LINE_LOCK: Mutex<()> = Mutex::new(());
 
-/// A direct writer.
+/// A log writer.
 ///
-/// This writes directly to some file descriptor through the `write` symbol.
-pub struct Writer {
-    /// The file descriptor.
-    fd: i32,
-}
+/// This writes to  `sys::log`.
+pub struct Writer;
 
 impl Writer {
     /// Standard error output.
-    pub fn stderr() -> Writer {
-        Writer {
-            fd: 2,
-        }
+    pub fn new() -> Writer {
+        Writer
     }
 }
 
 impl fmt::Write for Writer {
     fn write_str(&mut self, s: &str) -> fmt::Result {
-        if unsafe { write(self.fd, s.as_ptr(), s.len()) } == !0 {
+        if sys::log(s).is_err() {
             Err(fmt::Error)
         } else { Ok(()) }
     }
@@ -61,9 +53,10 @@ macro_rules! assert {
             // To avoid cluttering the lines, we acquire a lock.
             let _lock = write::LINE_LOCK.lock();
 
-            let _ = write!(write::Writer::stderr(), "assertion failed at {}:{}: `{}` - ", file!(),
+            let mut log = write::Writer::new();
+            let _ = write!(log, "assertion failed at {}:{}: `{}` - ", file!(),
                            line!(), stringify!($e));
-            let _ = writeln!(write::Writer::stderr(), $( $arg ),*);
+            let _ = writeln!(log, $( $arg ),*);
 
             #[allow(unused_unsafe)]
             unsafe { intrinsics::abort() }
@@ -77,9 +70,10 @@ macro_rules! assert {
 /// allows for aborting, non-allocating panics when running the tests.
 #[macro_export]
 macro_rules! debug_assert {
-    ($( $arg:tt )*) => {{
+    // We force the programmer to provide explanation of their assertion.
+    ($first:expr, $( $arg:tt )*) => {{
         if cfg!(debug_assertions) {
-            assert!($( $arg )*);
+            assert!($first, $( $arg )*);
         }
     }}
 }

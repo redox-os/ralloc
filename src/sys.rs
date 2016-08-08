@@ -61,6 +61,15 @@ pub fn register_thread_destructor<T>(load: *mut T, dtor: extern fn(*mut T)) -> R
     }
 }
 
+/// Write text to the log.
+///
+/// The log target is defined by the `shim` crate.
+// TODO find a better way to silence the warning than this attribute
+#[allow(dead_code)]
+pub fn log(s: &str) -> Result<(), ()> {
+    if shim::log(s) == -1 { Err(()) } else { Ok(()) }
+}
+
 #[cfg(test)]
 mod test {
     use super::*;
