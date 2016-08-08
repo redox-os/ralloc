@@ -624,12 +624,12 @@ pub trait Allocator: ops::DerefMut<Target = Bookkeeper> {
         // Logging.
         log!(self;self.pool.len(), "Pushing {:?}.", block);
 
-        // Some assertions...
-        debug_assert!(self.pool.is_empty() || &block > self.pool.last().unwrap(), "Pushing will \
-                      make the list unsorted.");
-
         // Short-circuit in case on empty block.
         if !block.is_empty() {
+            // Some assertions...
+            debug_assert!(self.pool.is_empty() || &block > self.pool.last().unwrap(), "Pushing will \
+                          make the list unsorted.");
+
             // We will try to simply merge it with the last block.
             if let Some(x) = self.pool.last_mut() {
                 if x.merge_right(&mut block).is_ok() {
