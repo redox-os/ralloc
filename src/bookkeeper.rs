@@ -31,7 +31,6 @@ static BOOKKEEPER_ID_COUNTER: AtomicUsize = AtomicUsize::new(0);
 /// This stores data about the state of the allocator, and in particular, the free memory.
 ///
 /// The actual functionality is provided by [`Allocator`](./trait.Allocator.html).
-#[derive(Default)]
 pub struct Bookkeeper {
     /// The internal block pool.
     ///
@@ -53,6 +52,12 @@ pub struct Bookkeeper {
     /// These are **not** invariants: If these assumpptions are not held, it will simply act strange
     /// (e.g. logic bugs), but not memory unsafety.
     pool: Vec<Block>,
+    /// Is this bookkeeper currently reserving?
+    ///
+    /// This is used to avoid unbounded metacircular reallocation (reservation).
+    ///
+    // TODO find a replacement for this "hack".
+    reserving: bool,
     /// The allocator ID.
     ///
     /// This is simply to be able to distinguish allocators in the locks.
@@ -71,12 +76,14 @@ impl Bookkeeper {
         #[cfg(feature = "alloc_id")]
         let res = Bookkeeper {
             pool: vec,
+            reserving: false,
             // Increment the ID counter to get a brand new ID.
             id: BOOKKEEPER_ID_COUNTER.fetch_add(1, atomic::Ordering::SeqCst),
         };
         #[cfg(not(feature = "alloc_id"))]
         let res = Bookkeeper {
             pool: vec,
+            reserving: false,
         };
 
         log!(res, "Bookkeeper created.");
@@ -178,8 +185,9 @@ impl Bookkeeper {
             let mut it = self.pool.iter().enumerate().rev();
 
             // Check that the capacity is large enough.
-            assert!(self.pool.len() + EXTRA_ELEMENTS <= self.pool.capacity(), "The capacity should \
-                    be at least {} more than the length of the pool.", EXTRA_ELEMENTS);
+            assert!(self.reserving || self.pool.len() + EXTRA_ELEMENTS <= self.pool.capacity(),
+                    "The capacity should be at least {} more than the length of the pool.",
+                    EXTRA_ELEMENTS);
 
             if let Some((_, x)) = it.next() {
                 // Make sure there are no leading empty blocks.
@@ -662,15 +670,21 @@ pub trait Allocator: ops::DerefMut<Target = Bookkeeper> {
         // Logging.
         log!(self;min_cap, "Reserving {}.", min_cap);
 
-        if self.pool.capacity() < self.pool.len() + EXTRA_ELEMENTS || self.pool.capacity() < min_cap + EXTRA_ELEMENTS {
+        if !self.reserving && (self.pool.capacity() < self.pool.len() + EXTRA_ELEMENTS || self.pool.capacity() < min_cap + EXTRA_ELEMENTS) {
             // Reserve a little extra for performance reasons.
             let new_cap = (min_cap + EXTRA_ELEMENTS) * 2 + 16;
 
             // Catch 'em all.
             debug_assert!(new_cap > self.pool.capacity(), "Reserve shrinks?!");
 
+            // Make sure no unbounded reallocation happens.
+            self.reserving = true;
+
             // Break it to me!
             let new_buf = self.alloc_external(new_cap * mem::size_of::<Block>(), mem::align_of::<Block>());
+
+            // Go back to the original state.
+            self.reserving = false;
 
             Some(self.pool.refill(new_buf))
         } else {
