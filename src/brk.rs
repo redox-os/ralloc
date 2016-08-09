@@ -1,3 +1,7 @@
+//! BRK abstractions.
+//!
+//! This module provides safe abstractions over BRk.
+
 use prelude::*;
 
 use core::cmp;

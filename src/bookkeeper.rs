@@ -792,6 +792,9 @@ pub trait Allocator: ops::DerefMut<Target = Bookkeeper> {
 
         // We will only extend the length if we were unable to fit it into the current length.
         if ind + n == self.pool.len() {
+            // Loooooooging...
+            log!(self;ind, "Block pool not long enough for shift. Extending.");
+
             // Reserve space. This does not break order, due to the assumption that
             // `reserve` never breaks order.
             old_buf = unborrow!(self.reserve(self.pool.len() + 1));

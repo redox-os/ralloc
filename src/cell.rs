@@ -1,3 +1,5 @@
+//! Cell primitives.
+
 use core::cell::UnsafeCell;
 use core::mem;
 

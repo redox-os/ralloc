@@ -1,3 +1,7 @@
+//! Safe implementation of thread-local storage.
+//!
+//! This module provides lightweight abstractions for TLS similar to the ones provided by libstd.
+
 use core::{marker, mem};
 
 use sys;
