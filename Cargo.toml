@@ -17,6 +17,7 @@ unborrow = "0.3.0"
 
 [dependencies.ralloc_shim]
 path = "shim"
+version = "0.1"
 
 [dependencies.clippy]
 version = "0.0.80"
