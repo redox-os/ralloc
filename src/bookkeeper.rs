@@ -768,30 +768,25 @@ pub trait Allocator: ops::DerefMut<Target = Bookkeeper> {
         debug_assert!(!block.is_empty(), "Inserting an empty block.");
 
         // Find the next gap, where a used block were.
-        let n = {
-            // The element we search for.
-            let elem = self.pool
-                .iter()
-                .skip(ind)
-                .enumerate()
-                .filter(|&(_, x)| x.is_empty())
-                .next()
-                .map(|(n, _)| n);
-
-            elem.unwrap_or_else(|| {
-                // We default to the end of the pool.
-                self.pool.len() - ind
-            })
-        };
+        let gap = self.pool
+            .iter()
+            .enumerate()
+            // We only check _after_ the index.
+            .skip(ind)
+            // Until the block is empty.
+            .filter(|&(_, x)| x.is_empty())
+            .next()
+            .map(|(n, _)| n);
 
         // Log the operation.
-        log!(self;ind, "Moving {} blocks to the right.", n);
+        log!(self;ind, "Moving all blocks right to {} blocks to the right.",
+             gap.unwrap_or_else(|| self.pool.len()));
 
         // The old vector's buffer.
         let mut old_buf = None;
 
         // We will only extend the length if we were unable to fit it into the current length.
-        if ind + n == self.pool.len() {
+        if gap.is_none() {
             // Loooooooging...
             log!(self;ind, "Block pool not long enough for shift. Extending.");
 
@@ -811,7 +806,13 @@ pub trait Allocator: ops::DerefMut<Target = Bookkeeper> {
         unsafe {
             // Memmove the elements to make a gap to the new block.
             ptr::copy(self.pool.get_unchecked(ind) as *const Block,
-                      self.pool.get_unchecked_mut(ind + 1) as *mut Block, n);
+                      self.pool.get_unchecked_mut(ind + 1) as *mut Block,
+                      // The gap defaults to the end of the pool.
+                      gap.unwrap_or_else(|| self.pool.len() - 1) - ind);
+                      //                                    ^^^
+                      // We decrement to account for the push. Please note how we only push in the
+                      // `if` block above with the conditional that `gap` is `None`, which is the
+                      // case where the closure is evaluated.
 
             // Set the element.
             ptr::write(self.pool.get_unchecked_mut(ind), block);

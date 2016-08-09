@@ -1,6 +1,6 @@
 //! BRK abstractions.
 //!
-//! This module provides safe abstractions over BRk.
+//! This module provides safe abstractions over SBRK.
 
 use prelude::*;
 

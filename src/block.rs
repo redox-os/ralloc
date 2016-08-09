@@ -264,7 +264,7 @@ impl cmp::Eq for Block {}
 
 impl fmt::Debug for Block {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "0x{:x}[0x{:x}]", *self.ptr as usize, self.size)
+        write!(f, "0x{:x}[{}]", *self.ptr as usize, self.size)
     }
 }
 
