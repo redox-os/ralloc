@@ -24,11 +24,8 @@ macro_rules! log {
             use {write, log};
             use log::internal::IntoCursor;
 
-            // To avoid cluttering the lines, we acquire a lock.
-            let _lock = write::LINE_LOCK.lock();
-
             // Print the pool state.
-            let mut log = write::Writer::new();
+            let mut log = write::LogWriter::new();
             let _ = write!(log, "({:2})   {:10?} : ", $bk.id, log::internal::BlockLogger {
                 cur: $cur.clone().into_cursor(),
                 blocks: &$bk.pool,

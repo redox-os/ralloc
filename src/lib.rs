@@ -25,7 +25,7 @@
 #[macro_use]
 extern crate unborrow;
 
-#[cfg(feature = "libc_write")]
+#[cfg(feature = "write")]
 #[macro_use]
 mod write;
 #[macro_use]

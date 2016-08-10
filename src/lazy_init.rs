@@ -103,4 +103,15 @@ mod test {
         lazy.get();
         assert!(is_called.get());
     }
+
+    #[test]
+    #[should_panic]
+    #[allow(unused_assignments)]
+    fn test_unreachable() {
+        let mut a = LazyInit::new(|| 2);
+
+        a = LazyInit::unreachable();
+
+        a.get();
+    }
 }

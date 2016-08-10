@@ -1,4 +1,4 @@
-//! Direct libc-based write for internal debugging.
+//! Direct shim-based write for internal debugging.
 //!
 //! This will replace the assertion macros to avoid deadlocks in panics, by utilizing a
 //! non-allocating writing primitive.
@@ -7,26 +7,39 @@ use prelude::*;
 
 use core::fmt;
 
-use sys;
+use {sys, sync};
 
-/// The line lock.
+/// The log lock.
 ///
-/// This lock is used to avoid bungling and intertwining lines.
-pub static LINE_LOCK: Mutex<()> = Mutex::new(());
+/// This lock is used to avoid bungling and intertwining the log.
+#[cfg(not(feature = "no_log_lock"))]
+pub static LOG_LOCK: Mutex<()> = Mutex::new(());
 
 /// A log writer.
 ///
 /// This writes to  `sys::log`.
-pub struct Writer;
+pub struct LogWriter {
+    /// The inner lock.
+    #[cfg(not(feature = "no_log_lock"))]
+    _lock: sync::MutexGuard<'static, ()>,
+}
 
-impl Writer {
+impl LogWriter {
     /// Standard error output.
-    pub fn new() -> Writer {
-        Writer
+    pub fn new() -> LogWriter {
+        #[cfg(feature = "no_log_lock")]
+        {
+            LogWriter {}
+        }
+
+        #[cfg(not(feature = "no_log_lock"))]
+        LogWriter {
+            _lock: LOG_LOCK.lock(),
+        }
     }
 }
 
-impl fmt::Write for Writer {
+impl fmt::Write for LogWriter {
     fn write_str(&mut self, s: &str) -> fmt::Result {
         if sys::log(s).is_err() {
             Err(fmt::Error)
@@ -50,10 +63,7 @@ macro_rules! assert {
         use core::fmt::Write;
 
         if !$e {
-            // To avoid cluttering the lines, we acquire a lock.
-            let _lock = write::LINE_LOCK.lock();
-
-            let mut log = write::Writer::new();
+            let mut log = write::LogWriter::new();
             let _ = write!(log, "assertion failed at {}:{}: `{}` - ", file!(),
                            line!(), stringify!($e));
             let _ = writeln!(log, $( $arg ),*);
