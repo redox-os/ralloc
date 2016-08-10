@@ -70,7 +70,9 @@ fn local_init() -> LocalAllocator {
         .alloc(4 * bookkeeper::EXTRA_ELEMENTS * mem::size_of::<Block>(), mem::align_of::<Block>());
 
     unsafe {
-        THREAD_ALLOCATOR.register_thread_destructor(dtor).unwrap();
+        // Register the thread destructor on the current thread.
+        THREAD_ALLOCATOR.register_thread_destructor(dtor)
+            .expect("Unable to register a thread destructor.");
 
         LocalAllocator {
             inner: Bookkeeper::new(Vec::from_raw_parts(initial_segment, 0)),

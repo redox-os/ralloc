@@ -51,7 +51,8 @@ impl Breaker for Sbrk {
 
         // Use SBRK to allocate extra data segment. The alignment is used as precursor for our
         // allocated block. This ensures that it is properly memory aligned to the requested value.
-        let (alignment_block, rest) = Block::brk(brk_size).align(align).unwrap();
+        let (alignment_block, rest) = Block::brk(brk_size).align(align)
+            .expect("Unable to align block to the requested align.");
 
         // Split the block to leave the excessive space.
         let (res, excessive) = rest.split(size);

@@ -303,7 +303,7 @@ pub trait Allocator: ops::DerefMut<Target = Bookkeeper> {
                         Some((n, b))
                     } else {
                         // Put the split block back together and place it back in its spot.
-                        a.merge_right(&mut b).unwrap();
+                        a.merge_right(&mut b).expect("Unable to merge block right.");
                         *i = a;
                         None
                     }
@@ -528,7 +528,8 @@ pub trait Allocator: ops::DerefMut<Target = Bookkeeper> {
                 log!(self;ind, "Merging {:?} to the right.", block);
 
                 // We'll merge it with the block at the end of the range.
-                block.merge_right(&mut self.remove_at(ind.end)).unwrap();
+                block.merge_right(&mut self.remove_at(ind.end))
+                    .expect("Unable to merge block right, to the end of the range.");
                 // Merge succeeded.
 
                 // Place the excessive block back.
@@ -580,7 +581,10 @@ pub trait Allocator: ops::DerefMut<Target = Bookkeeper> {
 
         // Try to merge it with the block to the right.
         if ind.end < self.pool.len() && block.left_to(&self.pool[ind.end]) {
-            block.merge_right(&mut self.remove_at(ind.end)).unwrap();
+            // Merge the block with the rightmost block in the range.
+            block.merge_right(&mut self.remove_at(ind.end))
+                .expect("Unable to merge block right to the block at the end of the range");
+
             // The merging succeeded. We proceed to try to close in the possible gap.
             if ind.start != 0 && self.pool[ind.start - 1].merge_right(&mut block).is_ok() {
                 self.check();

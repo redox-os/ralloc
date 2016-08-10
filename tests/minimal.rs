@@ -2,9 +2,9 @@ extern crate ralloc;
 
 #[test]
 fn minimal() {
-    let mut a = Box::new(1);
-    let mut b = Box::new(2);
-    let mut c = Box::new(3);
+    let a = Box::new(1);
+    let b = Box::new(2);
+    let c = Box::new(3);
 
     assert_eq!(*a, 1);
     assert_eq!(*b, 2);
