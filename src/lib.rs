@@ -23,6 +23,7 @@
         single_match_else, string_add, string_add_assign, wrong_pub_self_convention)]
 
 #[macro_use]
+#[no_link]
 extern crate unborrow;
 
 #[cfg(feature = "write")]

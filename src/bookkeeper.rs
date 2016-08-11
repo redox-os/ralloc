@@ -641,15 +641,28 @@ pub trait Allocator: ops::DerefMut<Target = Bookkeeper> {
                 self.free(x);
             }
 
+            // Try again to merge with last block on the off chance reserve pushed something we can
+            // merge with. This has actually happened in testing.
+            if let Some(x) = self.pool.last_mut() {
+                if x.merge_right(&mut block).is_ok() {
+                    return;
+                }
+            }
 
             // Merging failed. Note that trailing empty blocks are not allowed, hence the last block is
             // the only non-empty candidate which may be adjacent to `block`.
 
-            // We push.
-            let res = self.pool.push(block);
+            // Check again that pushing is correct.
+            if self.pool.is_empty() || &block > self.pool.last().unwrap() {
+                // We push.
+                let res = self.pool.push(block);
 
-            // Make some assertions.
-            debug_assert!(res.is_ok(), "Push failed (buffer full).");
+                // Make some assertions.
+                debug_assert!(res.is_ok(), "Push failed (buffer full).");
+            } else {
+                // Can't push because reserve changed the end of the pool.
+                self.free(block);
+            }
         }
 
         // Check consistency.

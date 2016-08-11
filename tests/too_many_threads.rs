@@ -22,7 +22,6 @@ fn make_thread() -> thread::JoinHandle<()> {
 }
 
 #[test]
-#[ignore]
 fn multithread_join_handle_vec() {
     util::multiply(|| {
         let mut join = Vec::new();
