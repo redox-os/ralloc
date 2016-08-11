@@ -6,16 +6,21 @@ use prelude::*;
 
 use core::{mem, ops};
 
-use {brk, tls, sync};
+use {brk, sync};
 use bookkeeper::{self, Bookkeeper, Allocator};
 
+#[cfg(feature = "tls")]
+use tls;
+
 /// Alias for the wrapper type of the thread-local variable holding the local allocator.
+#[cfg(feature = "tls")]
 type ThreadLocalAllocator = MoveCell<Option<LazyInit<fn() -> LocalAllocator, LocalAllocator>>>;
 
 /// The global default allocator.
 // TODO: Remove these filthy function pointers.
 static GLOBAL_ALLOCATOR: sync::Mutex<LazyInit<fn() -> GlobalAllocator, GlobalAllocator>> =
     sync::Mutex::new(LazyInit::new(global_init));
+#[cfg(feature = "tls")]
 tls! {
     /// The thread-local allocator.
     static THREAD_ALLOCATOR: ThreadLocalAllocator = MoveCell::new(Some(LazyInit::new(local_init)));
@@ -42,6 +47,7 @@ fn global_init() -> GlobalAllocator {
 }
 
 /// Initialize the local allocator.
+#[cfg(feature = "tls")]
 fn local_init() -> LocalAllocator {
     /// The destructor of the local allocator.
     ///
@@ -95,34 +101,47 @@ fn local_init() -> LocalAllocator {
 // TODO: Instead of falling back to the global allocator, the thread dtor should be set such that
 // it run after the TLS keys that might be declared.
 macro_rules! get_allocator {
-    (|$v:ident| $b:expr) => {
-        // Get the thread allocator.
-        THREAD_ALLOCATOR.with(|thread_alloc| {
-            // Just dump some placeholding initializer in the place of the TLA.
-            if let Some(mut thread_alloc_original) = thread_alloc.replace(None) {
-                let res = {
-                    // Call the closure involved.
-                    let $v = thread_alloc_original.get();
+    (|$v:ident| $b:expr) => {{
+        // Get the thread allocator, if TLS is enabled
+        #[cfg(feature = "tls")]
+        {
+            THREAD_ALLOCATOR.with(|thread_alloc| {
+                if let Some(mut thread_alloc_original) = thread_alloc.replace(None) {
+                    let res = {
+                        // Call the closure involved.
+                        let $v = thread_alloc_original.get();
+                        $b
+                    };
+
+                    // Put back the original allocator.
+                    thread_alloc.replace(Some(thread_alloc_original));
+
+                    res
+                } else {
+                    // The local allocator seems to have been deinitialized, for this reason we fallback to
+                    // the global allocator.
+
+                    // Lock the global allocator.
+                    let mut guard = GLOBAL_ALLOCATOR.lock();
+
+                    // Call the block in question.
+                    let $v = guard.get();
                     $b
-                };
+                }
+            })
+        }
 
-                // Put back the original allocator.
-                thread_alloc.replace(Some(thread_alloc_original));
+        // TLS is disabled, just use the global allocator.
+        #[cfg(not(feature = "tls"))]
+        {
+            // Lock the global allocator.
+            let mut guard = GLOBAL_ALLOCATOR.lock();
 
-                res
-            } else {
-                // The local allocator seems to have been deinitialized, for this reason we fallback to
-                // the global allocator.
-
-                // Lock the global allocator.
-                let mut guard = GLOBAL_ALLOCATOR.lock();
-
-                // Call the block in question.
-                let $v = guard.get();
-                $b
-            }
-        })
-    }
+            // Call the block in question.
+            let $v = guard.get();
+            $b
+        }
+    }}
 }
 
 /// Derives `Deref` and `DerefMut` to the `inner` field.
@@ -177,13 +196,16 @@ impl Allocator for GlobalAllocator {
 /// A local allocator.
 ///
 /// This acquires memory from the upstream (global) allocator, which is protected by a `Mutex`.
+#[cfg(feature = "tls")]
 pub struct LocalAllocator {
     // The inner bookkeeper.
     inner: Bookkeeper,
 }
 
+#[cfg(feature = "tls")]
 derive_deref!(LocalAllocator, Bookkeeper);
 
+#[cfg(feature = "tls")]
 impl Allocator for LocalAllocator {
     #[inline]
     fn alloc_fresh(&mut self, size: usize, align: usize) -> Block {

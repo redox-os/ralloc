@@ -33,14 +33,15 @@ debug-assertions = false
 codegen-units = 1
 
 [features]
-default = ["allocator", "clippy"]
+default = ["allocator", "clippy", "tls"]
 # ---
 alloc_id = []
 allocator = []
 log = ["write", "alloc_id"]
 no_log_lock = ["log"]
 security = []
-testing = ["log", "write"]
+testing = ["log"]
+tls = []
 unsafe_no_brk_lock = []
 unsafe_no_mutex_lock = []
 write = []

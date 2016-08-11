@@ -31,6 +31,7 @@ mod write;
 #[macro_use]
 mod log;
 #[macro_use]
+#[cfg(feature = "tls")]
 mod tls;
 #[cfg(feature = "allocator")]
 mod symbols;
@@ -50,5 +51,7 @@ mod sys;
 mod vec;
 
 pub use allocator::{alloc, free, realloc, realloc_inplace};
-pub use fail::{set_oom_handler, set_thread_oom_handler};
+pub use fail::set_oom_handler;
 pub use sys::sbrk;
+#[cfg(feature = "tls")]
+pub use fail::set_thread_oom_handler;
