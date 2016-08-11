@@ -3,12 +3,13 @@
 //! Blocks are the main unit for the memory bookkeeping. A block is a simple construct with a
 //! `Pointer` pointer and a size. Occupied (non-free) blocks are represented by a zero-sized block.
 
+// TODO: Check the allow(cast_possible_wrap)s again.
+
 use prelude::*;
 
 use {sys, fail};
 
 use core::{ptr, cmp, mem, fmt};
-use core::convert::TryInto;
 
 /// A contiguous memory block.
 ///
@@ -46,11 +47,12 @@ impl Block {
 
     /// BRK allocate a block.
     #[inline]
+    #[allow(cast_possible_wrap)]
     pub fn brk(size: usize) -> Block {
         Block {
             size: size,
             ptr: unsafe {
-                Pointer::new(sys::sbrk(size.try_into().unwrap()).unwrap_or_else(|()| fail::oom()))
+                Pointer::new(sys::sbrk(size as isize).unwrap_or_else(|()| fail::oom()))
             },
         }
     }
@@ -157,8 +159,7 @@ impl Block {
     /// This marks it as free, and returns the old value.
     #[inline]
     pub fn pop(&mut self) -> Block {
-        let empty = Block::empty(self.ptr.clone());
-        mem::replace(self, empty)
+        unborrow!(mem::replace(self, Block::empty(self.ptr.clone())))
     }
 
     /// Is this block placed left to the given other block?
@@ -263,7 +264,7 @@ impl cmp::Eq for Block {}
 
 impl fmt::Debug for Block {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "0x{:x}[0x{:x}]", *self.ptr as usize, self.size)
+        write!(f, "0x{:x}[{}]", *self.ptr as usize, self.size)
     }
 }
 
@@ -343,5 +344,13 @@ mod test {
         assert!(block.empty_right().is_empty());
         assert_eq!(*Pointer::from(block.empty_left()) as *const u8, arr.as_ptr());
         assert_eq!(block.empty_right(), block.split(arr.len()).1);
+    }
+
+    #[test]
+    fn test_brk_grow_up() {
+        let brk1 = Block::brk(5);
+        let brk2 = Block::brk(100);
+
+        assert!(brk1 < brk2);
     }
 }

@@ -4,10 +4,13 @@ use prelude::*;
 
 use core::{slice, ops, mem, ptr};
 
+use leak::Leak;
+
 /// A low-level vector primitive.
 ///
 /// This does not perform allocation nor reallaction, thus these have to be done manually.
 /// Moreover, no destructors are called, making it possible to leak memory.
+// NOTE  ^^^^^^^  This derivation should be carefully reviewed when this struct is changed.
 pub struct Vec<T: Leak> {
     /// A pointer to the start of the buffer.
     ptr: Pointer<T>,
@@ -22,18 +25,6 @@ pub struct Vec<T: Leak> {
 }
 
 impl<T: Leak> Vec<T> {
-    /// Create a new empty vector.
-    ///
-    /// This won't allocate a buffer, thus it will have a capacity of zero.
-    #[inline]
-    pub const fn new() -> Vec<T> {
-        Vec {
-            ptr: Pointer::empty(),
-            len: 0,
-            cap: 0,
-        }
-    }
-
     /// Create a vector from a block.
     ///
     /// # Safety
@@ -41,12 +32,11 @@ impl<T: Leak> Vec<T> {
     /// This is unsafe, since it won't initialize the buffer in any way, possibly breaking type
     /// safety, memory safety, and so on. Thus, care must be taken upon usage.
     #[inline]
-    #[cfg(test)]
     pub unsafe fn from_raw_parts(block: Block, len: usize) -> Vec<T> {
         Vec {
-            cap: block.size() / mem::size_of::<T>(),
-            ptr: Pointer::new(*Pointer::from(block) as *mut T),
             len: len,
+            cap: block.size() / mem::size_of::<T>(),
+            ptr: Pointer::from(block).cast(),
         }
     }
 
@@ -57,17 +47,16 @@ impl<T: Leak> Vec<T> {
     ///
     /// # Panics
     ///
-    /// This panics if the vector is bigger than the block. Additional checks might be done in
-    /// debug mode.
+    /// This panics if the vector is bigger than the block.
     pub fn refill(&mut self, block: Block) -> Block {
         // Calculate the new capacity.
         let new_cap = block.size() / mem::size_of::<T>();
 
         // Make some assertions.
         assert!(self.len <= new_cap, "Block not large enough to cover the vector.");
-        self.check(&block);
+        assert!(block.aligned_to(mem::align_of::<T>()), "Block not aligned.");
 
-        let old = mem::replace(self, Vec::new());
+        let old = mem::replace(self, Vec::default());
 
         // Update the fields of `self`.
         self.cap = new_cap;
@@ -108,6 +97,25 @@ impl<T: Leak> Vec<T> {
         }
     }
 
+    /// Pop an element from the vector.
+    ///
+    /// If the vector is empty, `None` is returned.
+    #[inline]
+    pub fn pop(&mut self) -> Option<T> {
+        if self.len == 0 {
+            None
+        } else {
+            unsafe {
+                // Decrement the length.
+                self.len -= 1;
+
+                // We use `ptr::read` since the element is unaccessible due to the decrease in the
+                // length.
+                Some(ptr::read(self.get_unchecked(self.len)))
+            }
+        }
+    }
+
     /// Truncate this vector.
     ///
     /// This is O(1).
@@ -121,19 +129,16 @@ impl<T: Leak> Vec<T> {
 
         self.len = len;
     }
+}
 
-    /// Check the validity of a block with respect to the vector.
-    ///
-    /// Blocks not passing this checks might lead to logic errors when used as buffer for the
-    /// vector.
-    ///
-    /// This is a NO-OP in release mode.
-    #[inline]
-    fn check(&self, block: &Block) {
-        debug_assert!(block.size() % mem::size_of::<T>() == 0, "The size of T does not divide the \
-                      block's size.");
-        debug_assert!(self.len <= block.size() / mem::size_of::<T>(), "Block not large enough to \
-                      cover the vector.");
+// TODO: Remove this in favour of `derive` when rust-lang/rust#35263 is fixed.
+impl<T: Leak> Default for Vec<T> {
+    fn default() -> Vec<T> {
+        Vec {
+            ptr: Pointer::empty(),
+            cap: 0,
+            len: 0,
+        }
     }
 }
 
@@ -145,12 +150,12 @@ impl<T: Leak> From<Vec<T>> for Block {
 }
 
 impl<T: Leak> ops::Deref for Vec<T> {
-    #[inline]
     type Target = [T];
 
+    #[inline]
     fn deref(&self) -> &[T] {
         unsafe {
-            slice::from_raw_parts(*self.ptr as *const _, self.len)
+            slice::from_raw_parts(*self.ptr as *const T, self.len)
         }
     }
 }
@@ -159,15 +164,13 @@ impl<T: Leak> ops::DerefMut for Vec<T> {
     #[inline]
     fn deref_mut(&mut self) -> &mut [T] {
         unsafe {
-            slice::from_raw_parts_mut(*self.ptr as *mut _, self.len)
+            slice::from_raw_parts_mut(*self.ptr as *mut T, self.len)
         }
     }
 }
 
 #[cfg(test)]
 mod test {
-    use super::*;
-
     use prelude::*;
 
     #[test]
@@ -200,10 +203,20 @@ mod test {
         for _ in 0..14 {
             vec.push(b'_').unwrap();
         }
+        assert_eq!(vec.pop().unwrap(), b'_');
+        vec.push(b'@').unwrap();
+
 
         vec.push(b'!').unwrap_err();
 
-        assert_eq!(&*vec, b".aaaaaaaaaaaaaaabc______________");
+        assert_eq!(&*vec, b".aaaaaaaaaaaaaaabc_____________@");
         assert_eq!(vec.capacity(), 32);
+
+        for _ in 0..32 { vec.pop().unwrap(); }
+
+        assert!(vec.pop().is_none());
+        assert!(vec.pop().is_none());
+        assert!(vec.pop().is_none());
+        assert!(vec.pop().is_none());
     }
 }

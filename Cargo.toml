@@ -1,6 +1,6 @@
 [package]
 name = "ralloc"
-version = "0.1.0"
+version = "1.0.0"
 authors = ["ticki <ticki@users.noreply.github.com>"]
 
 # URLs and paths
@@ -13,10 +13,14 @@ keywords = ["alloc", "malloc", "allocator", "ralloc", "redox"]
 license = "MIT"
 
 [dependencies]
-ralloc_shim = { path = "shim" }
+unborrow = "0.3.0"
+
+[dependencies.ralloc_shim]
+path = "shim"
+version = "0.1"
 
 [dependencies.clippy]
-git = "https://github.com/Manishearth/rust-clippy.git"
+version = "0.0.80"
 optional = true
 
 [profile.release]
@@ -29,13 +33,15 @@ debug-assertions = false
 codegen-units = 1
 
 [features]
-default = ["allocator", "clippy"]
+default = ["allocator", "clippy", "tls"]
 # ---
+alloc_id = []
 allocator = []
-debug_tools = []
-libc_write = []
-log = ["libc_write"]
+log = ["write", "alloc_id"]
+no_log_lock = ["log"]
 security = []
-testing = ["log", "libc_write", "debug_tools"]
+testing = ["log"]
+tls = []
 unsafe_no_brk_lock = []
 unsafe_no_mutex_lock = []
+write = []

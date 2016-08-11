@@ -1,35 +1,47 @@
-//! Direct libc-based write for internal debugging.
+//! Direct shim-based write for internal debugging.
 //!
 //! This will replace the assertion macros to avoid deadlocks in panics, by utilizing a
 //! non-allocating writing primitive.
 
+use prelude::*;
+
 use core::fmt;
 
-extern {
-    /// Write a buffer to a file descriptor.
-    fn write(fd: i32, buff: *const u8, size: usize) -> isize;
-}
+use {sys, sync};
 
-/// A direct writer.
+/// The log lock.
 ///
-/// This writes directly to some file descriptor through the `write` symbol.
-pub struct Writer {
-    /// The file descriptor.
-    fd: i32,
+/// This lock is used to avoid bungling and intertwining the log.
+#[cfg(not(feature = "no_log_lock"))]
+pub static LOG_LOCK: Mutex<()> = Mutex::new(());
+
+/// A log writer.
+///
+/// This writes to  `sys::log`.
+pub struct LogWriter {
+    /// The inner lock.
+    #[cfg(not(feature = "no_log_lock"))]
+    _lock: sync::MutexGuard<'static, ()>,
 }
 
-impl Writer {
+impl LogWriter {
     /// Standard error output.
-    pub fn stderr() -> Writer {
-        Writer {
-            fd: 2,
+    pub fn new() -> LogWriter {
+        #[cfg(feature = "no_log_lock")]
+        {
+            LogWriter {}
+        }
+
+        #[cfg(not(feature = "no_log_lock"))]
+        LogWriter {
+            _lock: LOG_LOCK.lock(),
         }
     }
 }
 
-impl fmt::Write for Writer {
+impl fmt::Write for LogWriter {
     fn write_str(&mut self, s: &str) -> fmt::Result {
-        if unsafe { write(self.fd, s.as_ptr(), s.len()) } == !0 {
+        if sys::log(s).is_err() {
             Err(fmt::Error)
         } else { Ok(()) }
     }
@@ -41,20 +53,9 @@ impl fmt::Write for Writer {
 /// allows for aborting, non-allocating panics when running the tests.
 #[macro_export]
 macro_rules! assert {
-    ($e:expr) => {{
-        use write;
-
-        use core::intrinsics;
-        use core::fmt::Write;
-
-        if !$e {
-            let _ = write!(write::Writer::stderr(), "assertion failed at {}:{}: {}", file!(),
-                           line!(), stringify!($e));
-
-            #[allow(unused_unsafe)]
-            unsafe { intrinsics::abort() }
-        }
-    }};
+    ($e:expr) => {
+        assert!($e, "No description.");
+    };
     ($e:expr, $( $arg:expr ),*) => {{
         use write;
 
@@ -62,9 +63,10 @@ macro_rules! assert {
         use core::fmt::Write;
 
         if !$e {
-            let _ = write!(write::Writer::stderr(), "assertion failed at {}:{}: `{}` - ", file!(),
+            let mut log = write::LogWriter::new();
+            let _ = write!(log, "assertion failed at {}:{}: `{}` - ", file!(),
                            line!(), stringify!($e));
-            let _ = writeln!(write::Writer::stderr(), $( $arg ),*);
+            let _ = writeln!(log, $( $arg ),*);
 
             #[allow(unused_unsafe)]
             unsafe { intrinsics::abort() }
@@ -78,9 +80,10 @@ macro_rules! assert {
 /// allows for aborting, non-allocating panics when running the tests.
 #[macro_export]
 macro_rules! debug_assert {
-    ($( $arg:tt )*) => {{
+    // We force the programmer to provide explanation of their assertion.
+    ($first:expr, $( $arg:tt )*) => {{
         if cfg!(debug_assertions) {
-            assert!($( $arg )*);
+            assert!($first, $( $arg )*);
         }
     }}
 }

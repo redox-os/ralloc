@@ -2,6 +2,12 @@
 //!
 //! This crates define the user space allocator for Redox, which emphasizes performance and memory
 //! efficiency.
+//!
+//! # Ralloc seems to reimplement everything. Why?
+//!
+//! Memory allocators cannot depend on libraries or primitives, which allocates. This is a
+//! relatively strong condition, which means that you are forced to rewrite primitives and make
+//! sure no allocation ever happens.
 
 #![cfg_attr(feature = "allocator", allocator)]
 #![cfg_attr(feature = "clippy", feature(plugin))]
@@ -10,22 +16,33 @@
 #![no_std]
 
 #![feature(allocator, const_fn, core_intrinsics, stmt_expr_attributes, drop_types_in_const,
-           nonzero, optin_builtin_traits, type_ascription, question_mark, try_from)]
+           nonzero, optin_builtin_traits, type_ascription, question_mark, thread_local, linkage)]
 #![warn(missing_docs, cast_precision_loss, cast_sign_loss, cast_possible_wrap,
         cast_possible_truncation, filter_map, if_not_else, items_after_statements,
         invalid_upcast_comparisons, mutex_integer, nonminimal_bool, shadow_same, shadow_unrelated,
         single_match_else, string_add, string_add_assign, wrong_pub_self_convention)]
 
-#[cfg(feature = "libc_write")]
+#[macro_use]
+extern crate unborrow;
+
+#[cfg(feature = "write")]
 #[macro_use]
 mod write;
 #[macro_use]
 mod log;
+#[macro_use]
+#[cfg(feature = "tls")]
+mod tls;
+#[cfg(feature = "allocator")]
+mod symbols;
 
 mod allocator;
 mod block;
 mod bookkeeper;
+mod brk;
+mod cell;
 mod fail;
+mod lazy_init;
 mod leak;
 mod prelude;
 mod ptr;
@@ -33,51 +50,8 @@ mod sync;
 mod sys;
 mod vec;
 
-pub use allocator::{lock, Allocator};
+pub use allocator::{alloc, free, realloc, realloc_inplace};
 pub use fail::set_oom_handler;
 pub use sys::sbrk;
-
-/// Rust allocation symbol.
-#[no_mangle]
-#[inline]
-#[cfg(feature = "allocator")]
-pub extern fn __rust_allocate(size: usize, align: usize) -> *mut u8 {
-    lock().alloc(size, align)
-}
-
-/// Rust deallocation symbol.
-#[no_mangle]
-#[inline]
-#[cfg(feature = "allocator")]
-pub unsafe extern fn __rust_deallocate(ptr: *mut u8, size: usize, _align: usize) {
-    lock().free(ptr, size);
-}
-
-/// Rust reallocation symbol.
-#[no_mangle]
-#[inline]
-#[cfg(feature = "allocator")]
-pub unsafe extern fn __rust_reallocate(ptr: *mut u8, old_size: usize, size: usize, align: usize) -> *mut u8 {
-    lock().realloc(ptr, old_size, size, align)
-}
-
-/// Rust reallocation inplace symbol.
-#[no_mangle]
-#[inline]
-#[cfg(feature = "allocator")]
-pub unsafe extern fn __rust_reallocate_inplace(ptr: *mut u8, old_size: usize, size: usize, _align: usize) -> usize {
-    if lock().realloc_inplace(ptr, old_size, size).is_ok() {
-        size
-    } else {
-        old_size
-    }
-}
-
-/// Get the usable size of the some number of bytes of allocated memory.
-#[no_mangle]
-#[inline]
-#[cfg(feature = "allocator")]
-pub extern fn __rust_usable_size(size: usize, _align: usize) -> usize {
-    // Yay! It matches exactly.
-    size
-}
+#[cfg(feature = "tls")]
+pub use fail::set_thread_oom_handler;

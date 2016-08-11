@@ -7,8 +7,7 @@ use std::ptr;
 #[test]
 fn partial_realloc() {
     util::multiply(|| {
-        let mut alloc = ralloc::Allocator::new();
-        let buf = alloc.alloc(63, 3);
+        let buf = ralloc::alloc(63, 3);
 
         unsafe {
             util::acid(|| {
@@ -16,12 +15,12 @@ fn partial_realloc() {
                 *buf = 4;
             });
 
-            alloc.realloc(buf.offset(8), 75, 0, 23);
+            ralloc::realloc(buf.offset(8), 75, 0, 23);
             *buf = 5;
 
-            *alloc.realloc(buf, 4, 10, 2) = 10;
+            *ralloc::realloc(buf, 4, 10, 2) = 10;
 
-            alloc.free(buf, 4);
+            ralloc::free(buf, 4);
         }
     });
 }

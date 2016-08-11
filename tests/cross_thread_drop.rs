@@ -5,6 +5,7 @@ mod util;
 use std::thread;
 
 #[test]
+#[ignore]
 fn cross_thread_drop() {
     util::multiply(|| {
         let mut join = Vec::new();
