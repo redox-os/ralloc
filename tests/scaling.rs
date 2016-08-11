@@ -3,7 +3,6 @@ extern crate ralloc;
 mod util;
 
 #[test]
-#[ignore]
 fn big_alloc() {
     util::multiply(|| {
         let mut vec = Vec::new();
@@ -19,7 +18,6 @@ fn big_alloc() {
 }
 
 #[test]
-#[ignore]
 fn many_small_allocs() {
     util::multiply(|| {
         let mut vec = Vec::new();
