@@ -10,15 +10,15 @@ use {brk, tls, sync};
 use bookkeeper::{self, Bookkeeper, Allocator};
 
 /// Alias for the wrapper type of the thread-local variable holding the local allocator.
-type ThreadLocalAllocator = MoveCell<LazyInit<fn() -> LocalAllocator, LocalAllocator>>;
+type ThreadLocalAllocator = MoveCell<Option<LazyInit<fn() -> LocalAllocator, LocalAllocator>>>;
 
 /// The global default allocator.
-// TODO remove these filthy function pointers.
+// TODO: Remove these filthy function pointers.
 static GLOBAL_ALLOCATOR: sync::Mutex<LazyInit<fn() -> GlobalAllocator, GlobalAllocator>> =
     sync::Mutex::new(LazyInit::new(global_init));
 tls! {
     /// The thread-local allocator.
-    static THREAD_ALLOCATOR: ThreadLocalAllocator = MoveCell::new(LazyInit::new(local_init));
+    static THREAD_ALLOCATOR: ThreadLocalAllocator = MoveCell::new(Some(LazyInit::new(local_init)));
 }
 
 /// Initialize the global allocator.
@@ -47,17 +47,19 @@ fn local_init() -> LocalAllocator {
     ///
     /// This will simply free everything to the global allocator.
     extern fn dtor(alloc: &ThreadLocalAllocator) {
-        // This is important! If we simply moved out of the reference, we would end up with another
-        // dtor could use the value after-free. Thus we replace it by the `Unreachable` state,
-        // meaning that any request will result in panic.
-        let alloc = alloc.replace(LazyInit::unreachable());
+        // This is important! The thread destructors guarantee no other, and thus one could use the
+        // allocator _after_ this destructor have been finished. In fact, this is a real problem,
+        // and happens when using `Arc` and terminating the main thread, for this reason we place
+        // `None` as a permanent marker indicating that the allocator is deinitialized. After such
+        // a state is in place, all allocation calls will be redirected to the global allocator,
+        // which is of course still usable at this moment.
+        let alloc = alloc.replace(None).expect("Thread-local allocator is already freed.");
 
         // Lock the global allocator.
-        // TODO dumb borrowck
         let mut global_alloc = GLOBAL_ALLOCATOR.lock();
         let global_alloc = global_alloc.get();
 
-        // TODO, we know this is sorted, so we could abuse that fact to faster insertion in the
+        // TODO: we know this is sorted, so we could abuse that fact to faster insertion in the
         // global allocator.
 
         alloc.into_inner().inner.for_each(move |block| global_alloc.free(block));
@@ -82,21 +84,45 @@ fn local_init() -> LocalAllocator {
 
 /// Temporarily get the allocator.
 ///
-/// This is simply to avoid repeating ourself, so we let this take care of the hairy stuff.
-fn get_allocator<T, F: FnOnce(&mut LocalAllocator) -> T>(f: F) -> T {
-    // Get the thread allocator.
-    THREAD_ALLOCATOR.with(|thread_alloc| {
-        // Just dump some placeholding initializer in the place of the TLA.
-        let mut thread_alloc_original = thread_alloc.replace(LazyInit::unreachable());
+/// This is simply to avoid repeating ourself, so we let this take care of the hairy stuff:
+///
+/// 1. Initialize the allocator if needed.
+/// 2. If the allocator is not yet initialized, fallback to the global allocator.
+/// 3. Unlock/move temporarily out of reference.
+///
+/// This is a macro due to the lack of generic closure, which makes it impossible to have one
+/// closure for both cases (global and local).
+// TODO: Instead of falling back to the global allocator, the thread dtor should be set such that
+// it run after the TLS keys that might be declared.
+macro_rules! get_allocator {
+    (|$v:ident| $b:expr) => {
+        // Get the thread allocator.
+        THREAD_ALLOCATOR.with(|thread_alloc| {
+            // Just dump some placeholding initializer in the place of the TLA.
+            if let Some(mut thread_alloc_original) = thread_alloc.replace(None) {
+                let res = {
+                    // Call the closure involved.
+                    let $v = thread_alloc_original.get();
+                    $b
+                };
 
-        // Call the closure involved.
-        let res = f(thread_alloc_original.get());
+                // Put back the original allocator.
+                thread_alloc.replace(Some(thread_alloc_original));
 
-        // Put back the original allocator.
-        thread_alloc.replace(thread_alloc_original);
+                res
+            } else {
+                // The local allocator seems to have been deinitialized, for this reason we fallback to
+                // the global allocator.
 
-        res
-    })
+                // Lock the global allocator.
+                let mut guard = GLOBAL_ALLOCATOR.lock();
+
+                // Call the block in question.
+                let $v = guard.get();
+                $b
+            }
+        })
+    }
 }
 
 /// Derives `Deref` and `DerefMut` to the `inner` field.
@@ -174,9 +200,7 @@ impl Allocator for LocalAllocator {
 /// The OOM handler handles out-of-memory conditions.
 #[inline]
 pub fn alloc(size: usize, align: usize) -> *mut u8 {
-    get_allocator(|alloc| {
-        *Pointer::from(alloc.alloc(size, align))
-    })
+    get_allocator!(|alloc| *Pointer::from(alloc.alloc(size, align)))
 }
 
 /// Free a buffer.
@@ -201,9 +225,7 @@ pub fn alloc(size: usize, align: usize) -> *mut u8 {
 /// Secondly, freeing an used buffer can introduce use-after-free.
 #[inline]
 pub unsafe fn free(ptr: *mut u8, size: usize) {
-    get_allocator(|alloc| {
-        alloc.free(Block::from_raw_parts(Pointer::new(ptr), size))
-    });
+    get_allocator!(|alloc| alloc.free(Block::from_raw_parts(Pointer::new(ptr), size)))
 }
 
 /// Reallocate memory.
@@ -226,7 +248,7 @@ pub unsafe fn free(ptr: *mut u8, size: usize) {
 /// this is marked unsafe.
 #[inline]
 pub unsafe fn realloc(ptr: *mut u8, old_size: usize, size: usize, align: usize) -> *mut u8 {
-    get_allocator(|alloc| {
+    get_allocator!(|alloc| {
         *Pointer::from(alloc.realloc(
             Block::from_raw_parts(Pointer::new(ptr), old_size),
             size,
@@ -246,7 +268,7 @@ pub unsafe fn realloc(ptr: *mut u8, old_size: usize, size: usize, align: usize) 
 /// Due to being able to shrink (and thus free) the buffer, this is marked unsafe.
 #[inline]
 pub unsafe fn realloc_inplace(ptr: *mut u8, old_size: usize, size: usize) -> Result<(), ()> {
-    get_allocator(|alloc| {
+    get_allocator!(|alloc| {
         if alloc.realloc_inplace(
             Block::from_raw_parts(Pointer::new(ptr), old_size),
             size

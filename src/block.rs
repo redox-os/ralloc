@@ -3,7 +3,7 @@
 //! Blocks are the main unit for the memory bookkeeping. A block is a simple construct with a
 //! `Pointer` pointer and a size. Occupied (non-free) blocks are represented by a zero-sized block.
 
-// TODO check the allow(cast_possible_wrap)s again.
+// TODO: Check the allow(cast_possible_wrap)s again.
 
 use prelude::*;
 

@@ -80,55 +80,6 @@ fn main() {
 }
 ```
 
-### Debug check: double free
-
-Ooh, this one is a cool one. `ralloc` detects various memory bugs when compiled
-with the `debug_tools` feature. These checks include double free checks:
-
-```rust
-extern crate ralloc;
-
-fn main() {
-    // We start by allocating some stuff.
-    let a = Box::new(500u32);
-    // Then we memcpy the pointer (this is UB).
-    let b = unsafe { Box::from_raw(&*a as *mut u32) };
-    // Now both destructors are called. First a, then b, which is a double
-    // free. Luckily, `ralloc` provides a nice message for you, when in debug
-    // tools mode:
-    //    Assertion failed: Double free.
-
-    // Setting RUST_BACKTRACE allows you to get a stack backtrace, so that you
-    // can find where the double free occurs.
-}
-```
-
-### Debug check: memory leaks.
-
-TODO Temporarily disabled.
-
-`ralloc` got memleak superpowers too! Enable `debug_tools` and do:
-
-```rust
-extern crate ralloc;
-
-use std::{mem, spawn};
-
-fn main() {
-    thread::spawn(|| {
-        {
-            // We start by allocating some stuff.
-            let a = Box::new(500u32);
-            // We then leak `a`.
-            mem::forget(a);
-        }
-        // The box is now leaked, and the destructor won't be called.
-
-        // When this thread exits, the program will panic.
-    });
-}
-```
-
 ### Partial deallocation
 
 Many allocators limits deallocations to be allocated block, that is, you cannot

@@ -68,7 +68,7 @@ pub fn set_thread_oom_handler(handler: fn() -> !) {
         let res = thread_oom.replace(Some(handler));
 
         // Make sure that it doesn't override another handler.
-        // TODO Make this a warning
+        // TODO: Make this a warning.
         debug_assert!(res.is_none(), "Overriding the old handler. Is this intentional?");
     });
 }

@@ -60,7 +60,7 @@ pub mod internal {
         /// formatter if the underlying condition is true.
         ///
         /// For example, a plain position cursor will write `"|"` when `n == self.pos`.
-        // TODO use an iterator instead.
+        // TODO: Use an iterator instead.
         fn at(&self, f: &mut fmt::Formatter, n: usize) -> fmt::Result;
 
         /// The after hook.
@@ -186,7 +186,7 @@ pub mod internal {
 
     impl<'a, T: Cursor> fmt::Debug for BlockLogger<'a, T> {
         fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-            // TODO handle alignment etc.
+            // TODO: Handle alignment etc.
 
             for (n, i) in self.blocks.iter().enumerate() {
                 self.cur.at(f, n)?;

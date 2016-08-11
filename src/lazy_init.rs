@@ -8,8 +8,6 @@ enum State<F, T> {
     Uninitialized(F),
     /// The data is initialized, and ready for use.
     Initialized(T),
-    /// The data is unreachable, panick!
-    Unreachable,
 }
 
 /// A lazily initialized container.
@@ -33,16 +31,6 @@ impl<F: FnMut() -> T, T> LazyInit<F, T> {
         }
     }
 
-    /// Create a lazy initializer with unreachable inner data.
-    ///
-    /// When access is tried, it will simply issue a panic. This is useful for e.g. temporarily
-    /// getting ownership.
-    pub const fn unreachable() -> LazyInit<F, T> {
-        LazyInit {
-            state: State::Unreachable,
-        }
-    }
-
     /// Get a mutable reference to the inner value.
     ///
     /// If it is uninitialize, it will be initialized and then returned.
@@ -53,7 +41,6 @@ impl<F: FnMut() -> T, T> LazyInit<F, T> {
         match self.state {
             State::Initialized(ref mut x) => return x,
             State::Uninitialized(ref mut f) => inner = f(),
-            State::Unreachable => unreachable!(),
         }
 
         self.state = State::Initialized(inner);
@@ -61,7 +48,7 @@ impl<F: FnMut() -> T, T> LazyInit<F, T> {
         if let State::Initialized(ref mut x) = self.state {
             x
         } else {
-            // TODO find a better way.
+            // TODO: Find a better way to deal with this case.
             unreachable!();
         }
     }
@@ -75,7 +62,6 @@ impl<F: FnMut() -> T, T> LazyInit<F, T> {
         match self.state {
             State::Initialized(x) => x,
             State::Uninitialized(mut f) => f(),
-            State::Unreachable => unreachable!(),
         }
     }
 }
@@ -102,16 +88,5 @@ mod test {
         assert!(!is_called.get());
         lazy.get();
         assert!(is_called.get());
-    }
-
-    #[test]
-    #[should_panic]
-    #[allow(unused_assignments)]
-    fn test_unreachable() {
-        let mut a = LazyInit::new(|| 2);
-
-        a = LazyInit::unreachable();
-
-        a.get();
     }
 }

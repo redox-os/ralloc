@@ -7,7 +7,7 @@ use core::mem;
 ///
 /// This allows you to take ownership and replace the internal data with a new value. The
 /// functionality is similar to the one provided by [RFC #1659](https://github.com/rust-lang/rfcs/pull/1659).
-// TODO use that rfc ^
+// TODO: Use the features provided by the RFC.
 pub struct MoveCell<T> {
     /// The inner data.
     inner: UnsafeCell<T>,

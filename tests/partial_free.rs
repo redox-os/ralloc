@@ -16,7 +16,7 @@ fn partial_free() {
             });
 
             util::acid(|| {
-                ralloc::free(buf.offset(8), 75);
+                ralloc::free(buf.offset(8), 55);
                 *buf = 5;
             });
 

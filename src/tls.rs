@@ -37,8 +37,7 @@ impl<T: 'static> Key<T> {
     /// Register a TLS destructor on the current thread.
     ///
     /// Note that this has to be registered for every thread, it is needed for.
-    // TODO make this automatic on `Drop`.a
-    // TODO Is this sound?
+    // TODO: Make this automatic on `Drop`.
     #[inline]
     pub fn register_thread_destructor(&'static self, dtor: extern fn(&T)) -> Result<(), ()> {
         sys::register_thread_destructor(&self.inner as *const T as *mut T, unsafe { mem::transmute(dtor) })

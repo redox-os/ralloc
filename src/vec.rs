@@ -131,7 +131,7 @@ impl<T: Leak> Vec<T> {
     }
 }
 
-// TODO remove this in favour of `derive` when rust-lang/rust#35263 is fixed.
+// TODO: Remove this in favour of `derive` when rust-lang/rust#35263 is fixed.
 impl<T: Leak> Default for Vec<T> {
     fn default() -> Vec<T> {
         Vec {

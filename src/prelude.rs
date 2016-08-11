@@ -1,6 +1,6 @@
 //! Frequently used imports.
 
-// TODO remove all this?
+// TODO: Reconsider this. Is this an anti-pattern?
 
 pub use block::Block;
 pub use cell::MoveCell;

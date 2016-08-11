@@ -56,7 +56,7 @@ pub struct Bookkeeper {
     ///
     /// This is used to avoid unbounded metacircular reallocation (reservation).
     ///
-    // TODO find a replacement for this "hack".
+    // TODO: Find a replacement for this "hack".
     reserving: bool,
     /// The allocator ID.
     ///
@@ -72,7 +72,7 @@ impl Bookkeeper {
         debug_assert!(vec.capacity() >= EXTRA_ELEMENTS, "Not enough initial capacity of the vector.");
         debug_assert!(vec.is_empty(), "Initial vector isn't empty.");
 
-        // TODO, when added use expr field attributes
+        // TODO: When added use expr field attributes.
         #[cfg(feature = "alloc_id")]
         let res = Bookkeeper {
             pool: vec,
@@ -98,7 +98,6 @@ impl Bookkeeper {
     /// It is guaranteed that no block left to the returned value, satisfy the above condition.
     #[inline]
     fn find(&mut self, block: &Block) -> usize {
-        // TODO optimize this function.
         // Logging.
         log!(self, "Searching (exact) for {:?}.", block);
 
@@ -121,7 +120,6 @@ impl Bookkeeper {
     /// It is guaranteed that no block left to the returned value, satisfy the above condition.
     #[inline]
     fn find_bound(&mut self, block: &Block) -> Range<usize> {
-        // TODO optimize this function.
         // Logging.
         log!(self, "Searching (bounds) for {:?}.", block);
 
@@ -288,8 +286,6 @@ pub trait Allocator: ops::DerefMut<Target = Bookkeeper> {
     ///
     /// A block representing the marked area is then returned.
     fn alloc(&mut self, size: usize, align: usize) -> Block {
-        // TODO: scan more intelligently.
-
         // Logging.
         log!(self, "Allocating {} bytes with alignment {}.", size, align);
 
@@ -546,7 +542,6 @@ pub trait Allocator: ops::DerefMut<Target = Bookkeeper> {
                 // Run a consistency check.
                 self.check();
 
-                // TODO, drop excessive space
                 return Ok(res);
             }
         }

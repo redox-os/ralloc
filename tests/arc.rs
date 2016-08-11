@@ -5,7 +5,8 @@ extern crate ralloc;
 use std::sync::Arc;
 use std::thread;
 
-fn main() {
+#[test]
+fn test_arc() {
     let numbers: Vec<_> = (0..100).collect();
     let shared_numbers = Arc::new(numbers);
 

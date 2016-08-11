@@ -18,7 +18,7 @@ use core::cmp;
 /// The return value is always greater than or equals to the argument.
 #[inline]
 fn canonicalize_space(min: usize) -> usize {
-    // TODO tweak this.
+    // TODO: Tweak this.
     /// The BRK multiplier.
     ///
     /// The factor determining the linear dependence between the minimum segment, and the acquired
