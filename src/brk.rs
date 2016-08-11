@@ -68,7 +68,7 @@ mod test {
     fn test_ordered() {
         let brk = get(20, 1);
 
-        assert!(brk.0 < brk.1);
-        assert!(brk.1 < brk.2);
+        assert!(brk.0 <= brk.1);
+        assert!(brk.1 <= brk.2);
     }
 }
