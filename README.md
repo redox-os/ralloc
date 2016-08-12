@@ -63,7 +63,7 @@ You can set custom OOM handlers, by:
 extern crate ralloc;
 
 fn my_handler() -> ! {
-    println!("Oh no. Blame the Mexicans.");
+    println!("Oh no! You ran out of memory.");
 }
 
 fn main() {
@@ -80,7 +80,7 @@ You can override the global OOM handler for your current thread. Enable the `thr
 extern crate ralloc;
 
 fn my_handler() -> ! {
-    println!("Oh no. Blame the Mexicans.");
+    println!("Oh no! You ran out of memory.");
 }
 
 fn main() {
