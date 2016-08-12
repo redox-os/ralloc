@@ -45,7 +45,7 @@ Note that `ralloc` cannot coexist with another allocator, unless they're deliber
 ### Thread-local allocation
 
 Ralloc makes use of a global-local model allowing one to allocate or deallocate
-without locks, syncronization, or atomic writes. This provides reasonable
+without locks, synchronization, or atomic writes. This provides reasonable
 performance, while preserving flexibility and ability to multithread.
 
 ### First-class debugger (default: valgrind) support
@@ -128,7 +128,7 @@ which can be exploited when forgetting to initialize the data you allocate.
 
 ### Code verification
 
-Allocators are extremely security critical.If the same addressis allocated to
+Allocators are extremely security critical. If the same address is allocated to
 two different callers, you risk all sorts of vulnerabilities. For this reason,
 it is important that the code is reviewed and verified.
 
@@ -157,7 +157,7 @@ it is important that the code is reviewed and verified.
 
 `ralloc` makes heavy use of Rust's type system, to make safety guarantees.
 Internally, `ralloc` has a primitive named `Block`. This is fairly simple,
-denoting a contagious segment of memory, but what is interesting is how it is
+denoting a contiguous segment of memory, but what is interesting is how it is
 checked at compile time to be unique. This is done through the affine type
 system.
 
