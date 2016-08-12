@@ -21,7 +21,7 @@ I consider the state of the code quality very good.
 
 ## Using ralloc
 
-Be sure to use Rust nightly.
+Make sure you have Rust nightly.
 
 Add `ralloc` to `Cargo.toml`:
 
