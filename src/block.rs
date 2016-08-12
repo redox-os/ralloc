@@ -229,6 +229,27 @@ impl Block {
             ))
         } else { None }
     }
+
+    /// Mark this block free to the debugger.
+    ///
+    /// The debugger might do things like memleak and use-after-free checks. This methods informs
+    /// the debugger that this block is freed.
+    #[inline]
+    pub fn mark_free(self) -> Block {
+        sys::mark_free(*self.ptr as *const u8, self.size);
+
+        self
+    }
+
+    /// Mark this block uninitialized to the debugger.
+    ///
+    /// To detect use-after-free, the allocator need to mark
+    #[inline]
+    pub fn mark_uninitialized(self) -> Block {
+        sys::mark_uninitialized(*self.ptr as *const u8, self.size);
+
+        self
+    }
 }
 
 impl From<Block> for Pointer<u8> {

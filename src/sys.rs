@@ -70,6 +70,22 @@ pub fn log(s: &str) -> Result<(), ()> {
     if shim::log(s) == -1 { Err(()) } else { Ok(()) }
 }
 
+/// Tell the debugger that this segment is free.
+///
+/// If the `debugger` feature is disabled, this is a NOOP.
+pub fn mark_free(_ptr: *const u8, _size: usize) {
+    #[cfg(feature = "debugger")]
+    shim::debug::mark_free(_ptr as *const _, _size);
+}
+
+/// Tell the debugger that this segment is unaccessible.
+///
+/// If the `debugger` feature is disabled, this is a NOOP.
+pub fn mark_uninitialized(_ptr: *const u8, _size: usize) {
+    #[cfg(feature = "debugger")]
+    shim::debug::mark_free(_ptr as *const _, _size);
+}
+
 #[cfg(test)]
 mod test {
     use super::*;

@@ -327,7 +327,8 @@ pub trait Allocator: ops::DerefMut<Target = Bookkeeper> {
             debug_assert!(res.size() == size, "Requested space does not match with the returned \
                           block.");
 
-            res
+            // Mark the block uninitialized to the debugger.
+            res.mark_uninitialized()
         } else {
             // No fitting block found. Allocate a new block.
             self.alloc_external(size, align)
@@ -615,7 +616,8 @@ pub trait Allocator: ops::DerefMut<Target = Bookkeeper> {
         // Check consistency.
         self.check();
 
-        res
+        // Mark the block uninitialized to the debugger.
+        res.mark_uninitialized()
     }
 
     /// Push an element without reserving.
@@ -645,8 +647,8 @@ pub trait Allocator: ops::DerefMut<Target = Bookkeeper> {
             // Merging failed. Note that trailing empty blocks are not allowed, hence the last block is
             // the only non-empty candidate which may be adjacent to `block`.
 
-            // We push.
-            let res = self.pool.push(block);
+            // Mark it free and push.
+            let res = self.pool.push(block.mark_free());
 
             // Make some assertions.
             debug_assert!(res.is_ok(), "Push failed (buffer full).");
@@ -813,8 +815,8 @@ pub trait Allocator: ops::DerefMut<Target = Bookkeeper> {
                       // `if` block above with the conditional that `gap` is `None`, which is the
                       // case where the closure is evaluated.
 
-            // Set the element.
-            ptr::write(self.pool.get_unchecked_mut(ind), block);
+            // Mark it free and set the element.
+            ptr::write(self.pool.get_unchecked_mut(ind), block.mark_free());
         }
 
         // Free the old buffer, if it exists.
@@ -838,7 +840,9 @@ pub trait Allocator: ops::DerefMut<Target = Bookkeeper> {
 
             // Truncate the vector.
             self.pool.truncate(new_len);
-            res
+
+            // Mark the block uninitialized to the debugger.
+            res.mark_uninitialized()
         } else {
             // Calculate the upper and lower bound
             let empty = self.pool[ind + 1].empty_left();
@@ -854,7 +858,8 @@ pub trait Allocator: ops::DerefMut<Target = Bookkeeper> {
                 *place = empty2.empty_left();
             }
 
-            res
+            // Mark the block uninitialized to the debugger.
+            res.mark_uninitialized()
         }
     }
 }

@@ -21,6 +21,8 @@ I consider the state of the code quality very good.
 
 ## Using ralloc
 
+Be sure to use Rust nightly.
+
 Add `ralloc` to `Cargo.toml`:
 
 ```toml
@@ -45,6 +47,13 @@ Note that `ralloc` cannot coexist with another allocator, unless they're deliber
 Ralloc makes use of a global-local model allowing one to allocate or deallocate
 without locks, syncronization, or atomic writes. This provides reasonable
 performance, while preserving flexibility and ability to multithread.
+
+### First-class debugger (default: valgrind) support
+
+`ralloc` gives data to two debugger symbols specified in `ralloc_shim`, when
+the `debugger` feature is enabled. The default `shim` implementation is wired
+to `valgrind`, which can thus be used with `ralloc` to detect memory leaks and
+uninitialized use out-of-the-box.
 
 ### Custom out-of-memory handlers
 
