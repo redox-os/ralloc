@@ -5,6 +5,7 @@ mod util;
 use std::thread;
 
 #[test]
+#[ignore]
 fn join_thread() {
     util::multiply(|| {
         for i in 0..0xFFF {

@@ -655,11 +655,17 @@ pub trait Allocator: ops::DerefMut<Target = Bookkeeper> {
             // Merging failed. Note that trailing empty blocks are not allowed, hence the last block is
             // the only non-empty candidate which may be adjacent to `block`.
 
-            // Mark it free and push.
-            let res = self.pool.push(block.mark_free());
+            // Check again that pushing is correct.
+            if self.pool.is_empty() || &block > self.pool.last().unwrap() {
+                // We push.
+                let res = self.pool.push(block);
 
-            // Make some assertions.
-            debug_assert!(res.is_ok(), "Push failed (buffer full).");
+                // Make some assertions.
+                debug_assert!(res.is_ok(), "Push failed (buffer full).");
+            } else {
+                // Can't push because reserve changed the end of the pool.
+                self.free(block);
+            }
         }
 
         // Check consistency.
