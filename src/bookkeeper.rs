@@ -643,6 +643,14 @@ pub trait Allocator: ops::DerefMut<Target = Bookkeeper> {
                 self.free(x);
             }
 
+            // Try again to merge with last block on the off chance reserve pushed something we can
+            // merge with. This has actually happened in testing.
+            if let Some(x) = self.pool.last_mut() {
+                if x.merge_right(&mut block).is_ok() {
+                    return;
+                }
+            }
+
 
             // Merging failed. Note that trailing empty blocks are not allowed, hence the last block is
             // the only non-empty candidate which may be adjacent to `block`.
