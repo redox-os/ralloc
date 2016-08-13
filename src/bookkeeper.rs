@@ -52,6 +52,8 @@ pub struct Bookkeeper {
     /// These are **not** invariants: If these assumpptions are not held, it will simply act strange
     /// (e.g. logic bugs), but not memory unsafety.
     pool: Vec<Block>,
+    /// The total number of bytes in the pool.
+    total_bytes: usize,
     /// Is this bookkeeper currently reserving?
     ///
     /// This is used to avoid unbounded metacircular reallocation (reservation).
@@ -76,6 +78,7 @@ impl Bookkeeper {
         #[cfg(feature = "alloc_id")]
         let res = Bookkeeper {
             pool: vec,
+            total_bytes: 0,
             reserving: false,
             // Increment the ID counter to get a brand new ID.
             id: BOOKKEEPER_ID_COUNTER.fetch_add(1, atomic::Ordering::SeqCst),
@@ -83,6 +86,7 @@ impl Bookkeeper {
         #[cfg(not(feature = "alloc_id"))]
         let res = Bookkeeper {
             pool: vec,
+            total_bytes: 0,
             reserving: false,
         };
 
@@ -158,12 +162,27 @@ impl Bookkeeper {
         log!(self, "Iterating over the blocks of the bookkeeper...");
 
         // Run over all the blocks in the pool.
-        while let Some(i) = self.pool.pop() {
+        for i in self.pool.pop_iter() {
             f(i);
         }
 
         // Take the block holding the pool.
         f(Block::from(self.pool));
+    }
+
+    /// Pop the top block from the pool.
+    pub fn pop(&mut self) -> Option<Block> {
+        self.pool.pop()
+    }
+
+    /// Get the length of the pool.
+    pub fn len(&self) -> usize {
+        self.pool.len()
+    }
+
+    /// Get the total bytes of memory in the pool.
+    pub fn total_bytes(&self) -> usize {
+        self.total_bytes
     }
 
     /// Perform consistency checks.
@@ -179,6 +198,8 @@ impl Bookkeeper {
             // Logging.
             log!(self, "Checking...");
 
+            // The total number of bytes.
+            let mut total_bytes = 0;
             // Reverse iterator over the blocks.
             let mut it = self.pool.iter().enumerate().rev();
 
@@ -191,8 +212,12 @@ impl Bookkeeper {
                 // Make sure there are no leading empty blocks.
                 assert!(!x.is_empty(), "The leading block is empty.");
 
+                total_bytes += x.size();
+
                 let mut next = x;
                 for (n, i) in it {
+                    total_bytes += i.size();
+
                     // Check if sorted.
                     assert!(next >= i, "The block pool is not sorted at index, {} ({:?} < {:?}).",
                             n, next, i);
@@ -210,6 +235,10 @@ impl Bookkeeper {
                 // Check for trailing empty blocks.
                 assert!(!self.pool.last().unwrap().is_empty(), "Trailing empty blocks.");
             }
+
+            // Make sure the sum is maintained properly.
+            assert!(total_bytes == self.total_bytes, "The sum is not equal to the `total_bytes` \
+                    field. ({} ≠ {}).", total_bytes, self.total_bytes);
         }
     }
 }
@@ -242,6 +271,9 @@ pub trait Allocator: ops::DerefMut<Target = Bookkeeper> {
     /// This is assumed to not modify the order. If some block `b` is associated with index `i`
     /// prior to call of this function, it should be too after it.
     fn alloc_fresh(&mut self, size: usize, align: usize) -> Block;
+
+    /// Called right before new memory is added to the pool.
+    fn on_new_memory(&mut self) {}
 
     /// Allocate a chunk of memory.
     ///
@@ -313,13 +345,15 @@ pub trait Allocator: ops::DerefMut<Target = Bookkeeper> {
                 let _ = self.remove_at(n);
             }
 
-            let (res, excessive) = b.split(size);
+            // Update the pool byte count.
+            self.total_bytes -= b.size();
 
-            // Mark the excessive space as free.
+            // Split and mark the block uninitialized to the debugger.
+            let (res, excessive) = b.mark_uninitialized().split(size);
+
             // There are many corner cases that make knowing where to insert it difficult
             // so we search instead.
-            let bound = self.find_bound(&excessive);
-            self.free_bound(bound, excessive);
+            self.free(excessive);
 
             // Check consistency.
             self.check();
@@ -327,8 +361,7 @@ pub trait Allocator: ops::DerefMut<Target = Bookkeeper> {
             debug_assert!(res.size() == size, "Requested space does not match with the returned \
                           block.");
 
-            // Mark the block uninitialized to the debugger.
-            res.mark_uninitialized()
+            res
         } else {
             // No fitting block found. Allocate a new block.
             self.alloc_external(size, align)
@@ -441,8 +474,7 @@ pub trait Allocator: ops::DerefMut<Target = Bookkeeper> {
 
                 // Free the old block.
                 // Allocation may have moved insertion so we search again.
-                let bound = self.find_bound(&block);
-                self.free_bound(bound, block);
+                self.free(block);
 
                 // Check consistency.
                 self.check();
@@ -583,7 +615,9 @@ pub trait Allocator: ops::DerefMut<Target = Bookkeeper> {
 
             // The merging succeeded. We proceed to try to close in the possible gap.
             if ind.start != 0 && self.pool[ind.start - 1].merge_right(&mut block).is_ok() {
+                // Check consistency.
                 self.check();
+
                 return;
             }
         // Dammit, let's try to merge left.
@@ -616,17 +650,26 @@ pub trait Allocator: ops::DerefMut<Target = Bookkeeper> {
         // Check consistency.
         self.check();
 
-        // Mark the block uninitialized to the debugger.
-        res.mark_uninitialized()
+        res
     }
 
     /// Push an element without reserving.
-    fn push(&mut self, mut block: Block) {
+    // TODO: Make `push` and `free` one.
+    fn push(&mut self, block: Block) {
         // Logging.
         log!(self;self.pool.len(), "Pushing {:?}.", block);
 
+        // Mark the block free.
+        let mut block = block.mark_free();
+
         // Short-circuit in case on empty block.
         if !block.is_empty() {
+            // Trigger the new memory event handler.
+            self.on_new_memory();
+
+            // Update the pool byte count.
+            self.total_bytes += block.size();
+
             // Some assertions...
             debug_assert!(self.pool.is_empty() || &block > self.pool.last().unwrap(), "Pushing will \
                           make the list unsorted.");
@@ -640,6 +683,10 @@ pub trait Allocator: ops::DerefMut<Target = Bookkeeper> {
 
             // Reserve space and free the old buffer.
             if let Some(x) = unborrow!(self.reserve(self.pool.len() + 1)) {
+                // `free` handles the count, so we set it back.
+                // TODO: Find a better way to do so.
+                self.total_bytes -= block.size();
+
                 self.free(x);
             }
 
@@ -663,6 +710,10 @@ pub trait Allocator: ops::DerefMut<Target = Bookkeeper> {
                 // Make some assertions.
                 debug_assert!(res.is_ok(), "Push failed (buffer full).");
             } else {
+                // `free` handles the count, so we set it back.
+                // TODO: Find a better way to do so.
+                self.total_bytes -= block.size();
+
                 // Can't push because reserve changed the end of the pool.
                 self.free(block);
             }
@@ -697,6 +748,9 @@ pub trait Allocator: ops::DerefMut<Target = Bookkeeper> {
 
             // Go back to the original state.
             self.reserving = false;
+
+            // Check consistency.
+            self.check();
 
             Some(self.pool.refill(new_buf))
         } else {
@@ -782,6 +836,9 @@ pub trait Allocator: ops::DerefMut<Target = Bookkeeper> {
         debug_assert!(self.find(&block) == ind, "Block is not inserted at the appropriate index.");
         debug_assert!(!block.is_empty(), "Inserting an empty block.");
 
+        // Trigger the new memory event handler.
+        self.on_new_memory();
+
         // Find the next gap, where a used block were.
         let gap = self.pool
             .iter()
@@ -829,6 +886,8 @@ pub trait Allocator: ops::DerefMut<Target = Bookkeeper> {
                       // `if` block above with the conditional that `gap` is `None`, which is the
                       // case where the closure is evaluated.
 
+            // Update the pool byte count.
+            self.total_bytes += block.size();
             // Mark it free and set the element.
             ptr::write(self.pool.get_unchecked_mut(ind), block.mark_free());
         }
@@ -845,25 +904,24 @@ pub trait Allocator: ops::DerefMut<Target = Bookkeeper> {
     /// Remove a block.
     fn remove_at(&mut self, ind: usize) -> Block {
         // Logging.
-        log!(self;ind, "Removing block.");
+        log!(self;ind, "Removing block at {}.", ind);
 
-        if ind + 1 == self.pool.len() {
-            let res = self.pool[ind].pop();
+        let res = if ind + 1 == self.pool.len() {
+            let block = self.pool[ind].pop();
             // Make sure there are no trailing empty blocks.
             let new_len = self.pool.len() - self.pool.iter().rev().take_while(|x| x.is_empty()).count();
 
             // Truncate the vector.
             self.pool.truncate(new_len);
 
-            // Mark the block uninitialized to the debugger.
-            res.mark_uninitialized()
+            block
         } else {
             // Calculate the upper and lower bound
             let empty = self.pool[ind + 1].empty_left();
             let empty2 = empty.empty_left();
 
             // Replace the block at `ind` with the left empty block from `ind + 1`.
-            let res = mem::replace(&mut self.pool[ind], empty);
+            let block = mem::replace(&mut self.pool[ind], empty);
 
             // Iterate over the pool from `ind` and down.
             let skip = self.pool.len() - ind;
@@ -872,8 +930,16 @@ pub trait Allocator: ops::DerefMut<Target = Bookkeeper> {
                 *place = empty2.empty_left();
             }
 
-            // Mark the block uninitialized to the debugger.
-            res.mark_uninitialized()
-        }
+            block
+        };
+
+        // Update the pool byte count.
+        self.total_bytes -= res.size();
+
+        // Check consistency.
+        self.check();
+
+        // Mark the block uninitialized to the debugger.
+        res.mark_uninitialized()
     }
 }

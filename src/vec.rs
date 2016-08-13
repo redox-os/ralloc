@@ -10,7 +10,6 @@ use leak::Leak;
 ///
 /// This does not perform allocation nor reallaction, thus these have to be done manually.
 /// Moreover, no destructors are called, making it possible to leak memory.
-// NOTE  ^^^^^^^  This derivation should be carefully reviewed when this struct is changed.
 pub struct Vec<T: Leak> {
     /// A pointer to the start of the buffer.
     ptr: Pointer<T>,
@@ -128,6 +127,27 @@ impl<T: Leak> Vec<T> {
         assert!(len <= self.len, "Out of bound.");
 
         self.len = len;
+    }
+
+    /// Yield an iterator popping from the vector.
+    pub fn pop_iter(&mut self) -> PopIter<T> {
+        PopIter {
+            vec: self,
+        }
+    }
+}
+
+/// An iterator popping blocks from the bookkeeper.
+pub struct PopIter<'a, T: 'a + Leak> {
+    vec: &'a mut Vec<T>,
+}
+
+impl<'a, T: Leak> Iterator for PopIter<'a, T> {
+    type Item = T;
+
+    #[inline]
+    fn next(&mut self) -> Option<T> {
+        self.vec.pop()
     }
 }
 

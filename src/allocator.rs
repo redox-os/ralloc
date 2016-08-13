@@ -19,73 +19,11 @@ type ThreadLocalAllocator = MoveCell<Option<LazyInit<fn() -> LocalAllocator, Loc
 /// The global default allocator.
 // TODO: Remove these filthy function pointers.
 static GLOBAL_ALLOCATOR: sync::Mutex<LazyInit<fn() -> GlobalAllocator, GlobalAllocator>> =
-    sync::Mutex::new(LazyInit::new(global_init));
+    sync::Mutex::new(LazyInit::new(GlobalAllocator::init));
 #[cfg(feature = "tls")]
 tls! {
     /// The thread-local allocator.
-    static THREAD_ALLOCATOR: ThreadLocalAllocator = MoveCell::new(Some(LazyInit::new(local_init)));
-}
-
-/// Initialize the global allocator.
-fn global_init() -> GlobalAllocator {
-    // The initial acquired segment.
-    let (aligner, initial_segment, excessive) =
-        brk::get(4 * bookkeeper::EXTRA_ELEMENTS * mem::size_of::<Block>(), mem::align_of::<Block>());
-
-    // Initialize the new allocator.
-    let mut res = GlobalAllocator {
-        inner: Bookkeeper::new(unsafe {
-            Vec::from_raw_parts(initial_segment, 0)
-        }),
-    };
-
-    // Free the secondary space.
-    res.push(aligner);
-    res.push(excessive);
-
-    res
-}
-
-/// Initialize the local allocator.
-#[cfg(feature = "tls")]
-fn local_init() -> LocalAllocator {
-    /// The destructor of the local allocator.
-    ///
-    /// This will simply free everything to the global allocator.
-    extern fn dtor(alloc: &ThreadLocalAllocator) {
-        // This is important! The thread destructors guarantee no other, and thus one could use the
-        // allocator _after_ this destructor have been finished. In fact, this is a real problem,
-        // and happens when using `Arc` and terminating the main thread, for this reason we place
-        // `None` as a permanent marker indicating that the allocator is deinitialized. After such
-        // a state is in place, all allocation calls will be redirected to the global allocator,
-        // which is of course still usable at this moment.
-        let alloc = alloc.replace(None).expect("Thread-local allocator is already freed.");
-
-        // Lock the global allocator.
-        let mut global_alloc = GLOBAL_ALLOCATOR.lock();
-        let global_alloc = global_alloc.get();
-
-        // TODO: we know this is sorted, so we could abuse that fact to faster insertion in the
-        // global allocator.
-
-        alloc.into_inner().inner.for_each(move |block| global_alloc.free(block));
-    }
-
-    // The initial acquired segment.
-    let initial_segment = GLOBAL_ALLOCATOR
-        .lock()
-        .get()
-        .alloc(4 * bookkeeper::EXTRA_ELEMENTS * mem::size_of::<Block>(), mem::align_of::<Block>());
-
-    unsafe {
-        // Register the thread destructor on the current thread.
-        THREAD_ALLOCATOR.register_thread_destructor(dtor)
-            .expect("Unable to register a thread destructor.");
-
-        LocalAllocator {
-            inner: Bookkeeper::new(Vec::from_raw_parts(initial_segment, 0)),
-        }
-    }
+    static THREAD_ALLOCATOR: ThreadLocalAllocator = MoveCell::new(Some(LazyInit::new(LocalAllocator::init)));
 }
 
 /// Temporarily get the allocator.
@@ -175,6 +113,28 @@ struct GlobalAllocator {
     inner: Bookkeeper,
 }
 
+impl GlobalAllocator {
+    /// Initialize the global allocator.
+    fn init() -> GlobalAllocator {
+        // The initial acquired segment.
+        let (aligner, initial_segment, excessive) =
+            brk::get(4 * bookkeeper::EXTRA_ELEMENTS * mem::size_of::<Block>(), mem::align_of::<Block>());
+
+        // Initialize the new allocator.
+        let mut res = GlobalAllocator {
+            inner: Bookkeeper::new(unsafe {
+                Vec::from_raw_parts(initial_segment, 0)
+            }),
+        };
+
+        // Free the secondary space.
+        res.push(aligner);
+        res.push(excessive);
+
+        res
+    }
+}
+
 derive_deref!(GlobalAllocator, Bookkeeper);
 
 impl Allocator for GlobalAllocator {
@@ -202,6 +162,69 @@ pub struct LocalAllocator {
     inner: Bookkeeper,
 }
 
+impl LocalAllocator {
+    /// Initialize the local allocator.
+    #[cfg(feature = "tls")]
+    fn init() -> LocalAllocator {
+        /// The destructor of the local allocator.
+        ///
+        /// This will simply free everything to the global allocator.
+        extern fn dtor(alloc: &ThreadLocalAllocator) {
+            // This is important! The thread destructors guarantee no other, and thus one could use the
+            // allocator _after_ this destructor have been finished. In fact, this is a real problem,
+            // and happens when using `Arc` and terminating the main thread, for this reason we place
+            // `None` as a permanent marker indicating that the allocator is deinitialized. After such
+            // a state is in place, all allocation calls will be redirected to the global allocator,
+            // which is of course still usable at this moment.
+            let alloc = alloc.replace(None).expect("Thread-local allocator is already freed.");
+
+            // Lock the global allocator.
+            let mut global_alloc = GLOBAL_ALLOCATOR.lock();
+            let global_alloc = global_alloc.get();
+
+            // TODO: we know this is sorted, so we could abuse that fact to faster insertion in the
+            // global allocator.
+
+            alloc.into_inner().inner.for_each(move |block| global_alloc.free(block));
+        }
+
+        // The initial acquired segment.
+        let initial_segment = GLOBAL_ALLOCATOR
+            .lock()
+            .get()
+            .alloc(4 * bookkeeper::EXTRA_ELEMENTS * mem::size_of::<Block>(), mem::align_of::<Block>());
+
+        unsafe {
+            // Register the thread destructor on the current thread.
+            THREAD_ALLOCATOR.register_thread_destructor(dtor)
+                .expect("Unable to register a thread destructor.");
+
+            LocalAllocator {
+                inner: Bookkeeper::new(Vec::from_raw_parts(initial_segment, 0)),
+            }
+        }
+    }
+
+    /// Shuld we memtrim this allocator?
+    ///
+    /// The idea is to free memory to the global allocator to unify small stubs and avoid
+    /// fragmentation and thread accumulation.
+    fn should_memtrim(&self) -> bool {
+        // TODO: Tweak this.
+
+        /// The fragmentation scale constant.
+        ///
+        /// This is used for determining the minimum avarage block size before memtrimming.
+        const FRAGMENTATION_SCALE: usize = 10;
+        /// The local memtrim limit.
+        ///
+        /// Whenever an allocator has more free bytes than this value, it will be memtrimmed.
+        const LOCAL_MEMTRIM_LIMIT: usize = 16384;
+
+        self.total_bytes() < FRAGMENTATION_SCALE * self.len() || self.total_bytes() > LOCAL_MEMTRIM_LIMIT
+    }
+}
+
 #[cfg(feature = "tls")]
 derive_deref!(LocalAllocator, Bookkeeper);
 
@@ -212,6 +235,23 @@ impl Allocator for LocalAllocator {
         // Get the block from the global allocator. Please note that we cannot canonicalize `size`,
         // due to freeing excessive blocks would change the order.
         GLOBAL_ALLOCATOR.lock().get().alloc(size, align)
+    }
+
+    #[inline]
+    fn on_new_memory(&mut self) {
+        if self.should_memtrim() {
+            // Lock the global allocator.
+            let mut global_alloc = GLOBAL_ALLOCATOR.lock();
+            let global_alloc = global_alloc.get();
+
+            while let Some(block) = self.pop() {
+                // Pop'n'free.
+                global_alloc.free(block);
+
+                // Memtrim 'till we can't memtrim anymore.
+                if !self.should_memtrim() { break; }
+            }
+        }
     }
 }
 

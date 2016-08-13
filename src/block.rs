@@ -54,7 +54,7 @@ impl Block {
             ptr: unsafe {
                 Pointer::new(sys::sbrk(size as isize).unwrap_or_else(|()| fail::oom()))
             },
-        }
+        }.mark_uninitialized()
     }
 
     /// Create an empty block starting at `ptr`.
