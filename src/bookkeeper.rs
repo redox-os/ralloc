@@ -67,6 +67,7 @@ pub struct Bookkeeper {
     id: usize,
 }
 
+#[allow(len_without_is_empty)]
 impl Bookkeeper {
     /// Create a new bookkeeper with some initial vector.
     pub fn new(vec: Vec<Block>) -> Bookkeeper {

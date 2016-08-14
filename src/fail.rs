@@ -3,27 +3,19 @@
 use prelude::*;
 
 use core::sync::atomic::{self, AtomicPtr};
-use core::{mem, intrinsics};
+use core::mem;
+
+use sys;
 
 #[cfg(feature = "tls")]
 use tls;
 
 /// The global OOM handler.
-static OOM_HANDLER: AtomicPtr<()> = AtomicPtr::new(default_oom_handler as *mut ());
+static OOM_HANDLER: AtomicPtr<()> = AtomicPtr::new(sys::default_oom_handler as *mut ());
 #[cfg(feature = "tls")]
 tls! {
     /// The thread-local OOM handler.
     static THREAD_OOM_HANDLER: MoveCell<Option<fn() -> !>> = MoveCell::new(None);
-}
-
-/// The default OOM handler.
-///
-/// This will simply abort the process.
-#[cold]
-fn default_oom_handler() -> ! {
-    unsafe {
-        intrinsics::abort();
-    }
 }
 
 /// Call the OOM handler.

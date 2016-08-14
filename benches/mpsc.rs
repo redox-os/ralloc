@@ -6,10 +6,8 @@ extern crate test;
 use std::thread;
 use std::sync::mpsc;
 
-use test::Bencher;
-
 #[bench]
-fn bench(b: &mut Bencher) {
+fn bench_mpsc(b: &mut test::Bencher) {
     b.iter(|| {
         let (tx, rx) = mpsc::channel::<Box<u64>>();
         thread::spawn(move || {

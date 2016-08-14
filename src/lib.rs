@@ -16,7 +16,8 @@
 #![no_std]
 
 #![feature(allocator, const_fn, core_intrinsics, stmt_expr_attributes, drop_types_in_const,
-           nonzero, optin_builtin_traits, type_ascription, question_mark, thread_local, linkage)]
+           nonzero, optin_builtin_traits, type_ascription, question_mark, thread_local, linkage,
+           try_from)]
 #![warn(missing_docs, cast_precision_loss, cast_sign_loss, cast_possible_wrap,
         cast_possible_truncation, filter_map, if_not_else, items_after_statements,
         invalid_upcast_comparisons, mutex_integer, nonminimal_bool, shadow_same, shadow_unrelated,
@@ -52,7 +53,7 @@ mod sys;
 mod vec;
 
 pub use allocator::{alloc, free, realloc, realloc_inplace};
+pub use brk::sbrk;
 pub use fail::set_oom_handler;
-pub use sys::sbrk;
 #[cfg(feature = "tls")]
 pub use fail::set_thread_oom_handler;

@@ -3,10 +3,8 @@
 extern crate ralloc;
 extern crate test;
 
-use test::Bencher;
-
 #[bench]
-fn bench(b: &mut Bencher) {
+fn bench_vec(b: &mut test::Bencher) {
     b.iter(|| {
         let mut stuff = Vec::with_capacity(10);
 

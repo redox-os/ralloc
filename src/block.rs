@@ -7,9 +7,9 @@
 
 use prelude::*;
 
-use {sys, fail};
-
 use core::{ptr, cmp, mem, fmt};
+
+use sys;
 
 /// A contiguous memory block.
 ///
@@ -38,23 +38,11 @@ pub struct Block {
 impl Block {
     /// Construct a block from its raw parts (pointer and size).
     #[inline]
-    pub unsafe fn from_raw_parts(ptr: Pointer<u8>, size: usize) ->  Block {
+    pub unsafe fn from_raw_parts(ptr: Pointer<u8>, size: usize) -> Block {
         Block {
             size: size,
             ptr: ptr,
         }
-    }
-
-    /// BRK allocate a block.
-    #[inline]
-    #[allow(cast_possible_wrap)]
-    pub fn brk(size: usize) -> Block {
-        Block {
-            size: size,
-            ptr: unsafe {
-                Pointer::new(sys::sbrk(size as isize).unwrap_or_else(|()| fail::oom()))
-            },
-        }.mark_uninitialized()
     }
 
     /// Create an empty block starting at `ptr`.
@@ -365,13 +353,5 @@ mod test {
         assert!(block.empty_right().is_empty());
         assert_eq!(*Pointer::from(block.empty_left()) as *const u8, arr.as_ptr());
         assert_eq!(block.empty_right(), block.split(arr.len()).1);
-    }
-
-    #[test]
-    fn test_brk_grow_up() {
-        let brk1 = Block::brk(5);
-        let brk2 = Block::brk(100);
-
-        assert!(brk1 < brk2);
     }
 }

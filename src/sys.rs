@@ -1,41 +1,29 @@
 //! System primitives.
+//!
+//! This mostly wraps the `ralloc_shim` crate but provides some additional error handling.
 
 extern crate ralloc_shim as shim;
 
-use prelude::*;
-
 use core::mem;
 
-/// The BRK mutex.
-///
-/// This is used for avoiding data races in multiple allocator.
-static BRK_MUTEX: Mutex<()> = Mutex::new(());
+pub use self::shim::default_oom_handler;
 
-/// Increment data segment of this process by some, _n_, return a pointer to the new data segment
-/// start.
+/// Set the program break.
 ///
-/// This uses the system call BRK as backend.
+/// On success, the new program break is returned. On failure, the old program break is returned.
 ///
 /// # Safety
 ///
-/// This is safe unless you have negative or overflowing `n`.
+/// This is due to being able to invalidate safe addresses as well as breaking invariants for the
+/// [`brk`](../brk).
 #[inline]
-pub unsafe fn sbrk(n: isize) -> Result<*mut u8, ()> {
-    // Lock the BRK mutex.
-    #[cfg(not(feature = "unsafe_no_brk_lock"))]
-    let _guard = BRK_MUTEX.lock();
-
-    let brk = shim::sbrk(n);
-    if brk as usize == !0 {
-        Err(())
-    } else {
-        Ok(brk as *mut u8)
-    }
+pub unsafe fn brk(ptr: *const u8) -> *const u8 {
+    shim::brk(ptr)
 }
 
 /// Cooperatively gives up a timeslice to the OS scheduler.
 pub fn yield_now() {
-    assert_eq!(unsafe { shim::sched_yield() }, 0);
+    assert_eq!(shim::sched_yield(), 0);
 }
 
 /// Register a thread destructor.
@@ -67,33 +55,23 @@ pub fn register_thread_destructor<T>(load: *mut T, dtor: extern fn(*mut T)) -> R
 // TODO: Find a better way to silence the warning than this attribute.
 #[allow(dead_code)]
 pub fn log(s: &str) -> Result<(), ()> {
-    if shim::log(s) == -1 { Err(()) } else { Ok(()) }
+    if shim::log(s) == !0 { Err(()) } else { Ok(()) }
 }
 
 /// Tell the debugger that this segment is free.
 ///
 /// If the `debugger` feature is disabled, this is a NOOP.
+#[inline(always)]
 pub fn mark_free(_ptr: *const u8, _size: usize) {
     #[cfg(feature = "debugger")]
-    shim::debug::mark_free(_ptr as *const _, _size);
+    shim::debug::mark_free(_ptr, _size);
 }
 
 /// Tell the debugger that this segment is unaccessible.
 ///
 /// If the `debugger` feature is disabled, this is a NOOP.
+#[inline(always)]
 pub fn mark_uninitialized(_ptr: *const u8, _size: usize) {
     #[cfg(feature = "debugger")]
-    shim::debug::mark_free(_ptr as *const _, _size);
-}
-
-#[cfg(test)]
-mod test {
-    use super::*;
-
-    #[test]
-    fn test_oom() {
-        unsafe {
-            assert!(sbrk(9999999999999).is_err());
-        }
-    }
+    shim::debug::mark_free(_ptr, _size);
 }

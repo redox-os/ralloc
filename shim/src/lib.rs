@@ -1,39 +1,61 @@
 //! Symbols and externs that `ralloc` depends on.
 //!
 //! This crate provides implementation/import of these in Linux, BSD, and Mac OS.
+//!
+//! # Important
+//!
+//! You CANNOT use libc library calls, due to no guarantees being made about allocations of the
+//! functions in the POSIX specification. Therefore, we use the system calls directly.
 
-#![feature(linkage)]
+#![feature(linkage, core_intrinsics)]
 #![no_std]
 #![warn(missing_docs)]
 
-extern crate libc;
+#[macro_use]
+extern crate syscall;
 
-pub use libc::sched_yield;
+use core::intrinsics;
 
-extern {
-    /// Change the data segment. See `man sbrk`.
-    pub fn sbrk(ptr: libc::intptr_t) -> *const libc::c_void;
-    /// Write a buffer to a file descriptor.
-    fn write(fd: libc::c_int, buff: *const libc::c_void, size: libc::size_t) -> libc::ssize_t;
+/// Voluntarily give a time slice to the scheduler.
+pub fn sched_yield() -> usize {
+    unsafe { syscall!(SCHED_YIELD) }
+}
+
+/// The default OOM handler.
+#[cold]
+pub fn default_oom_handler() -> ! {
+    // Log some message.
+    log("\x1b[31;1mThe application ran out of memory. Aborting.\n");
+
+    unsafe {
+        intrinsics::abort();
+    }
+}
+
+/// Change the data segment. See `man brk`.
+///
+/// # Note
+///
+/// This is the `brk` **syscall**, not the library function.
+pub unsafe fn brk(ptr: *const u8) -> *const u8 {
+    syscall!(BRK, ptr) as *const u8
 }
 
 /// Write to the log.
 ///
 /// This points to stderr, but could be changed arbitrarily.
-pub fn log(s: &str) -> libc::ssize_t {
-    unsafe { write(2, s.as_ptr() as *const libc::c_void, s.len()) }
+pub fn log(s: &str) -> usize {
+    unsafe { syscall!(WRITE, 2, s.as_ptr(), s.len()) }
 }
 
 /// Thread destructors for Linux.
 #[cfg(target_os = "linux")]
 pub mod thread_destructor {
-    use libc;
-
     extern {
         #[linkage = "extern_weak"]
         static __dso_handle: *mut u8;
         #[linkage = "extern_weak"]
-        static __cxa_thread_atexit_impl: *const libc::c_void;
+        static __cxa_thread_atexit_impl: *const u8;
     }
 
     /// Does this platform support thread destructors?
@@ -58,17 +80,15 @@ pub mod thread_destructor {
         use core::mem;
 
         /// A thread destructor.
-        type Dtor = unsafe extern fn(dtor: unsafe extern fn(*mut u8), arg: *mut u8, dso_handle: *mut u8) -> libc::c_int;
+        type Dtor = unsafe extern fn(dtor: unsafe extern fn(*mut u8), arg: *mut u8, dso_handle: *mut u8) -> i32;
 
-        mem::transmute::<*const libc::c_void, Dtor>(__cxa_thread_atexit_impl)(dtor, t, &__dso_handle as *const _ as *mut _);
+        mem::transmute::<*const u8, Dtor>(__cxa_thread_atexit_impl)(dtor, t, &__dso_handle as *const _ as *mut _);
     }
 }
 
 /// Thread destructors for Mac OS.
 #[cfg(target_os = "macos")]
 pub mod thread_destructor {
-    use libc;
-
     /// Does this platform support thread destructors?
     ///
     /// This will always return true.
@@ -93,21 +113,19 @@ pub mod thread_destructor {
 
 /// Debugging.
 pub mod debug {
-    use libc;
-
     extern {
         /// Valgrind symbol to declare memory undefined.
-        fn valgrind_make_mem_undefined(ptr: *const libc::c_void, size: libc::size_t);
+        fn valgrind_make_mem_undefined(ptr: *const u8, size: usize);
         /// Valgrind symbol to declare memory freed.
-        fn valgrind_freelike_block(ptr: *const libc::c_void, size: libc::size_t);
+        fn valgrind_freelike_block(ptr: *const u8, size: usize);
     }
 
     /// Mark this segment undefined to the debugger.
-    pub fn mark_undefined(ptr: *const libc::c_void, size: libc::size_t) {
+    pub fn mark_undefined(ptr: *const u8, size: usize) {
         unsafe { valgrind_make_mem_undefined(ptr, size) }
     }
     /// Mark this segment free to the debugger.
-    pub fn mark_free(ptr: *const libc::c_void, size: libc::size_t) {
+    pub fn mark_free(ptr: *const u8, size: usize) {
         unsafe { valgrind_freelike_block(ptr, size) }
     }
 }

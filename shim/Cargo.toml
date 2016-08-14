@@ -1,7 +1,7 @@
 [package]
 name = "ralloc_shim"
 version = "0.1.1"
-authors = ["Jeremy Soller <jackpot51@gmail.com>", "Ticki"]
+authors = ["Ticki", "Jeremy Soller <jackpot51@gmail.com>"]
 
 [profile.release]
 panic = "abort"
@@ -12,6 +12,5 @@ lto = true
 debug-assertions = false
 codegen-units = 1
 
-[dependencies.libc]
-version = "0.2"
-default-features = false
+[dependencies]
+syscall = "0.2.1"

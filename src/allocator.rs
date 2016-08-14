@@ -118,7 +118,7 @@ impl GlobalAllocator {
     fn init() -> GlobalAllocator {
         // The initial acquired segment.
         let (aligner, initial_segment, excessive) =
-            brk::get(4 * bookkeeper::EXTRA_ELEMENTS * mem::size_of::<Block>(), mem::align_of::<Block>());
+            brk::lock().canonical_brk(4 * bookkeeper::EXTRA_ELEMENTS * mem::size_of::<Block>(), mem::align_of::<Block>());
 
         // Initialize the new allocator.
         let mut res = GlobalAllocator {
@@ -141,7 +141,7 @@ impl Allocator for GlobalAllocator {
     #[inline]
     fn alloc_fresh(&mut self, size: usize, align: usize) -> Block {
         // Obtain what you need.
-        let (alignment_block, res, excessive) = brk::get(size, align);
+        let (alignment_block, res, excessive) = brk::lock().canonical_brk(size, align);
 
         // Add it to the list. This will not change the order, since the pointer is higher than all
         // the previous blocks (BRK extends the data segment). Although, it is worth noting that
