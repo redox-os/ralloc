@@ -61,7 +61,6 @@ pub fn log(s: &str) -> Result<(), ()> {
 /// Tell the debugger that this segment is free.
 ///
 /// If the `debugger` feature is disabled, this is a NOOP.
-#[inline(always)]
 pub fn mark_free(_ptr: *const u8, _size: usize) {
     #[cfg(feature = "debugger")]
     shim::debug::mark_free(_ptr, _size);
@@ -70,7 +69,6 @@ pub fn mark_free(_ptr: *const u8, _size: usize) {
 /// Tell the debugger that this segment is unaccessible.
 ///
 /// If the `debugger` feature is disabled, this is a NOOP.
-#[inline(always)]
 pub fn mark_uninitialized(_ptr: *const u8, _size: usize) {
     #[cfg(feature = "debugger")]
     shim::debug::mark_free(_ptr, _size);

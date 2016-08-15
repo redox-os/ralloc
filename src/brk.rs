@@ -13,7 +13,7 @@ use {sync, sys, fail};
 ///
 /// This is used for avoiding data races in multiple allocator.
 static BRK_MUTEX: Mutex<BrkState> = Mutex::new(BrkState {
-    brk_end: None,
+    current_brk: None,
 });
 
 /// A cache of the BRK state.
@@ -21,16 +21,78 @@ static BRK_MUTEX: Mutex<BrkState> = Mutex::new(BrkState {
 /// To avoid keeping asking the OS for information whenever needed, we cache it.
 struct BrkState {
     /// The program break's end
-    brk_end: Option<Pointer<u8>>,
+    current_brk: Option<Pointer<u8>>,
 }
 
 /// A BRK lock.
 pub struct BrkLock {
     /// The inner lock.
-    guard: sync::MutexGuard<'static, BrkState>,
+    state: sync::MutexGuard<'static, BrkState>,
 }
 
 impl BrkLock {
+    /// Extend the program break.
+    ///
+    /// # Safety
+    ///
+    /// Due to being able shrink the program break, this method is unsafe.
+    unsafe fn sbrk(&mut self, size: isize) -> Result<Pointer<u8>, ()> {
+        // Calculate the new program break. To avoid making multiple syscalls, we make use of the
+        // state cache.
+        let expected_brk = self.current_brk().offset(size);
+
+        // Break it to me, babe!
+        let old_brk = Pointer::new(sys::brk(*expected_brk as *const u8) as *mut u8);
+
+        if expected_brk == old_brk && size != 0 {
+            // BRK failed. This syscall is rather weird, but whenever it fails (e.g. OOM) it
+            // returns the old (unchanged) break.
+            Err(())
+        } else {
+            // Update the program break cache.
+            self.state.current_brk = Some(expected_brk.clone());
+
+            // Return the old break.
+            Ok(old_brk)
+        }
+    }
+
+    /// Safely release memory to the OS.
+    ///
+    /// If failed, we return the memory.
+    #[allow(cast_possible_wrap)]
+    pub fn release(&mut self, block: Block) -> Result<(), Block> {
+        // Check if we are actually next to the program break.
+        if self.current_brk() == Pointer::from(block.empty_right()) {
+            // We are. Now, sbrk the memory back. Do to the condition above, this is safe.
+            let res = unsafe { self.sbrk(-(block.size() as isize)) };
+
+            // In debug mode, we want to check for WTF-worthy scenarios.
+            debug_assert!(res.is_ok(), "Failed to set the program break back.");
+
+            Ok(())
+        } else {
+            // Return the block back.
+            Err(block)
+        }
+    }
+
+    /// Get the current program break.
+    ///
+    /// If not available in the cache, requested it from the OS.
+    fn current_brk(&mut self) -> Pointer<u8> {
+        if let Some(ref cur) = self.state.current_brk {
+            return cur.clone();
+        }
+
+        // TODO: Damn it, borrowck.
+        // Get the current break.
+        let cur = current_brk();
+        self.state.current_brk = Some(cur.clone());
+
+        cur
+    }
+
     /// BRK new space.
     ///
     /// The first block represents the aligner segment (that is the precursor aligning the middle
@@ -64,41 +126,12 @@ impl BrkLock {
 
         (alignment_block, res, excessive)
     }
-
-    /// Extend the program break.
-    ///
-    /// # Safety
-    ///
-    /// Due to being able shrink the program break, this method is unsafe.
-    unsafe fn sbrk(&mut self, size: isize) -> Result<Pointer<u8>, ()> {
-        // Calculate the new program break. To avoid making multiple syscalls, we make use of the
-        // state cache.
-        let new_brk = self.guard.brk_end
-            .clone()
-            .unwrap_or_else(current_brk)
-            .offset(size);
-
-        // Break it to me, babe!
-        let old_brk = Pointer::new(sys::brk(*new_brk as *const u8) as *mut u8);
-
-        if new_brk == old_brk && size != 0 {
-            // BRK failed. This syscall is rather weird, but whenever it fails (e.g. OOM) it
-            // returns the old (unchanged) break.
-            Err(())
-        } else {
-            // Update the program break cache.
-            self.guard.brk_end = Some(old_brk.clone());
-
-            // Return the old break.
-            Ok(old_brk)
-        }
-    }
 }
 
 /// Lock the BRK lock to allow manipulating the program break.
 pub fn lock() -> BrkLock {
     BrkLock {
-        guard: BRK_MUTEX.lock(),
+        state: BRK_MUTEX.lock(),
     }
 }
 

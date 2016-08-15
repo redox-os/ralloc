@@ -151,6 +151,41 @@ impl Allocator for GlobalAllocator {
 
         res
     }
+
+    fn on_new_memory(&mut self) {
+        /// The memtrim limit.
+        ///
+        /// Whenever this is exceeded, the allocator will try to free as much memory to the system
+        /// as it can.
+        const OS_MEMTRIM_LIMIT: usize = 200000000;
+        /// Minimum size before a block is worthy to memtrim.
+        const MEMTRIM_WORTHY: usize = 4000;
+
+        if self.total_bytes() > OS_MEMTRIM_LIMIT {
+            // memtrim the fack outta 'em.
+
+            // Pop the last block.
+            let block = self.pop().expect("The byte count on the global allocator is invalid.");
+
+            // Check if the memtrim is worth it.
+            if block.size() >= MEMTRIM_WORTHY {
+                // Release the block to the OS.
+                if let Err(block) = brk::lock().release(block) {
+                    // It failed, put the block back.
+                    // TODO: This can be done faster.
+                    self.push(block);
+                }
+
+                // Note that this block is the only block next to the program break, due to the
+                // segments being as long as possible. For that reason, repeating to push and
+                // release would fail.
+            } else {
+                // Push the block back.
+                // TODO: This can be done faster.
+                self.push(block);
+            }
+        }
+    }
 }
 
 /// A local allocator.
