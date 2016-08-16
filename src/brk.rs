@@ -4,10 +4,12 @@
 
 use prelude::*;
 
-use core::{cmp, ptr};
+use core::ptr;
 use core::convert::TryInto;
 
-use {sync, sys, fail};
+use shim::{syscalls, config};
+
+use {sync, fail};
 
 /// The BRK mutex.
 ///
@@ -37,12 +39,14 @@ impl BrkLock {
     ///
     /// Due to being able shrink the program break, this method is unsafe.
     unsafe fn sbrk(&mut self, size: isize) -> Result<Pointer<u8>, ()> {
+        log!(NOTE, "BRKing new space.");
+
         // Calculate the new program break. To avoid making multiple syscalls, we make use of the
         // state cache.
         let expected_brk = self.current_brk().offset(size);
 
         // Break it to me, babe!
-        let old_brk = Pointer::new(sys::brk(*expected_brk as *const u8) as *mut u8);
+        let old_brk = Pointer::new(syscalls::brk(*expected_brk as *const u8) as *mut u8);
 
         if expected_brk == old_brk && size != 0 {
             // BRK failed. This syscall is rather weird, but whenever it fails (e.g. OOM) it
@@ -64,6 +68,8 @@ impl BrkLock {
     pub fn release(&mut self, block: Block) -> Result<(), Block> {
         // Check if we are actually next to the program break.
         if self.current_brk() == Pointer::from(block.empty_right()) {
+            log!(DEBUG, "Releasing {:?} to the OS.", block);
+
             // We are. Now, sbrk the memory back. Do to the condition above, this is safe.
             let res = unsafe { self.sbrk(-(block.size() as isize)) };
 
@@ -105,7 +111,7 @@ impl BrkLock {
     // TODO: This method is possibly unsafe.
     pub fn canonical_brk(&mut self, size: usize, align: usize) -> (Block, Block, Block) {
         // Calculate the canonical size (extra space is allocated to limit the number of system calls).
-        let brk_size = canonicalize_space(size) + align;
+        let brk_size = size + config::extra_brk(size) + align;
 
         // Use SBRK to allocate extra data segment. The alignment is used as precursor for our
         // allocated block. This ensures that it is properly memory aligned to the requested value.
@@ -152,38 +158,7 @@ pub unsafe extern fn sbrk(size: isize) -> *mut u8 {
 
 /// Get the current program break.
 fn current_brk() -> Pointer<u8> {
-    unsafe { Pointer::new(sys::brk(ptr::null()) as *mut u8) }
-}
-
-/// Canonicalize a BRK request.
-///
-/// Syscalls can be expensive, which is why we would rather accquire more memory than necessary,
-/// than having many syscalls acquiring memory stubs. Memory stubs are small blocks of memory,
-/// which are essentially useless until merge with another block.
-///
-/// To avoid many syscalls and accumulating memory stubs, we BRK a little more memory than
-/// necessary. This function calculate the memory to be BRK'd based on the necessary memory.
-///
-/// The return value is always greater than or equals to the argument.
-#[inline]
-fn canonicalize_space(min: usize) -> usize {
-    // TODO: Tweak this.
-    /// The BRK multiplier.
-    ///
-    /// The factor determining the linear dependence between the minimum segment, and the acquired
-    /// segment.
-    const BRK_MULTIPLIER: usize = 2;
-    /// The minimum size to be BRK'd.
-    const BRK_MIN: usize = 1024;
-    /// The maximal amount of _extra_ elements.
-    const BRK_MAX_EXTRA: usize = 65536;
-
-    let res = cmp::max(BRK_MIN, min + cmp::min(BRK_MULTIPLIER * min, BRK_MAX_EXTRA));
-
-    // Make some handy assertions.
-    debug_assert!(res >= min, "Canonicalized BRK space is smaller than the one requested.");
-
-    res
+    unsafe { Pointer::new(syscalls::brk(ptr::null()) as *mut u8) }
 }
 
 #[cfg(test)]

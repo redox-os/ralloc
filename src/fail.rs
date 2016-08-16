@@ -5,13 +5,13 @@ use prelude::*;
 use core::sync::atomic::{self, AtomicPtr};
 use core::mem;
 
-use sys;
+use shim::config;
 
 #[cfg(feature = "tls")]
 use tls;
 
 /// The global OOM handler.
-static OOM_HANDLER: AtomicPtr<()> = AtomicPtr::new(sys::default_oom_handler as *mut ());
+static OOM_HANDLER: AtomicPtr<()> = AtomicPtr::new(config::default_oom_handler as *mut ());
 #[cfg(feature = "tls")]
 tls! {
     /// The thread-local OOM handler.
@@ -35,9 +35,13 @@ pub fn oom() -> ! {
     #[cfg(feature = "tls")]
     {
         if let Some(handler) = THREAD_OOM_HANDLER.with(|x| x.replace(None)) {
+            log!(DEBUG, "Calling the local OOM handler.");
+
             handler();
         }
     }
+
+    log!(DEBUG, "Calling the global OOM handler.");
 
     unsafe {
         // Transmute the atomic pointer to a function pointer and call it.
@@ -50,6 +54,9 @@ pub fn oom() -> ! {
 /// This is called when the process is out-of-memory.
 #[inline]
 pub fn set_oom_handler(handler: fn() -> !) {
+    // Logging...
+    log!(NOTE, "Setting the global OOM handler.");
+
     OOM_HANDLER.store(handler as *mut (), atomic::Ordering::SeqCst);
 }
 
@@ -61,13 +68,17 @@ pub fn set_oom_handler(handler: fn() -> !) {
 #[inline]
 #[cfg(feature = "tls")]
 pub fn set_thread_oom_handler(handler: fn() -> !) {
+    // Logging...
+    log!(NOTE, "Setting the thread OOM handler.");
+
     THREAD_OOM_HANDLER.with(|thread_oom| {
         // Replace it with the new handler.
         let res = thread_oom.replace(Some(handler));
 
-        // Make sure that it doesn't override another handler.
-        // TODO: Make this a warning.
-        debug_assert!(res.is_none(), "Overriding the old handler. Is this intentional?");
+        // Throw a warning if it overrides another handler.
+        if cfg!(debug_assertions) && res.is_some() {
+            log!(WARNING, "An old thread OOM handler was overriden.");
+        }
     });
 }
 

@@ -5,6 +5,8 @@ use prelude::*;
 use core::ops::Range;
 use core::{ptr, mem, ops};
 
+use shim::config;
+
 /// Elements required _more_ than the length as capacity.
 ///
 /// This represents how many elements that are needed to conduct a `reserve` without the
@@ -91,7 +93,7 @@ impl Bookkeeper {
             reserving: false,
         };
 
-        log!(res, "Bookkeeper created.");
+        bk_log!(res, "Bookkeeper created.");
         res.check();
 
         res
@@ -104,7 +106,7 @@ impl Bookkeeper {
     #[inline]
     fn find(&mut self, block: &Block) -> usize {
         // Logging.
-        log!(self, "Searching (exact) for {:?}.", block);
+        bk_log!(self, "Searching (exact) for {:?}.", block);
 
         let ind = match self.pool.binary_search(block) {
             Ok(x) | Err(x) => x,
@@ -126,7 +128,7 @@ impl Bookkeeper {
     #[inline]
     fn find_bound(&mut self, block: &Block) -> Range<usize> {
         // Logging.
-        log!(self, "Searching (bounds) for {:?}.", block);
+        bk_log!(self, "Searching (bounds) for {:?}.", block);
 
         let mut left_ind = match self.pool.binary_search(block) {
             Ok(x) | Err(x) => x,
@@ -160,7 +162,7 @@ impl Bookkeeper {
     /// slightly faster in some cases.
     pub fn for_each<F: FnMut(Block)>(mut self, mut f: F) {
         // Logging.
-        log!(self, "Iterating over the blocks of the bookkeeper...");
+        bk_log!(self, "Iterating over the blocks of the bookkeeper...");
 
         // Run over all the blocks in the pool.
         for i in self.pool.pop_iter() {
@@ -197,7 +199,7 @@ impl Bookkeeper {
     fn check(&self) {
         if cfg!(debug_assertions) {
             // Logging.
-            log!(self, "Checking...");
+            bk_log!(self, "Checking...");
 
             // The total number of bytes.
             let mut total_bytes = 0;
@@ -320,7 +322,7 @@ pub trait Allocator: ops::DerefMut<Target = Bookkeeper> {
     /// A block representing the marked area is then returned.
     fn alloc(&mut self, size: usize, align: usize) -> Block {
         // Logging.
-        log!(self, "Allocating {} bytes with alignment {}.", size, align);
+        bk_log!(self, "Allocating {} bytes with alignment {}.", size, align);
 
         if let Some((n, b)) = self.pool.iter_mut().enumerate().filter_map(|(n, i)| {
             if i.size() >= size {
@@ -414,7 +416,7 @@ pub trait Allocator: ops::DerefMut<Target = Bookkeeper> {
     #[inline]
     fn free(&mut self, block: Block) {
         // Just logging for the unlucky people debugging this shit. No problem.
-        log!(self, "Freeing {:?}...", block);
+        bk_log!(self, "Freeing {:?}...", block);
 
         // Binary search for the block.
         let bound = self.find_bound(&block);
@@ -459,7 +461,7 @@ pub trait Allocator: ops::DerefMut<Target = Bookkeeper> {
         let ind = self.find_bound(&block);
 
         // Logging.
-        log!(self;ind, "Reallocating {:?} to size {} with align {}...", block, new_size, align);
+        bk_log!(self;ind, "Reallocating {:?} to size {} with align {}...", block, new_size, align);
 
         // Try to do an inplace reallocation.
         match self.realloc_inplace_bound(ind, block, new_size) {
@@ -501,7 +503,7 @@ pub trait Allocator: ops::DerefMut<Target = Bookkeeper> {
     #[inline]
     fn realloc_inplace(&mut self, block: Block, new_size: usize) -> Result<Block, Block> {
         // Logging.
-        log!(self, "Reallocating {:?} inplace to {}...", block, new_size);
+        bk_log!(self, "Reallocating {:?} inplace to {}...", block, new_size);
 
         // Find the bounds of given block.
         let bound = self.find_bound(&block);
@@ -521,7 +523,7 @@ pub trait Allocator: ops::DerefMut<Target = Bookkeeper> {
     /// See [`realloc_inplace`](#method.realloc_inplace.html) for more information.
     fn realloc_inplace_bound(&mut self, ind: Range<usize>, mut block: Block, new_size: usize) -> Result<Block, Block> {
         // Logging.
-        log!(self;ind, "Try inplace reallocating {:?} to size {}.", block, new_size);
+        bk_log!(self;ind, "Try inplace reallocating {:?} to size {}.", block, new_size);
 
         /// Assertions...
         debug_assert!(self.find(&block) == ind.start, "Block is not inserted at the appropriate \
@@ -529,7 +531,7 @@ pub trait Allocator: ops::DerefMut<Target = Bookkeeper> {
 
         if new_size <= block.size() {
             // Shrink the block.
-            log!(self;ind, "Shrinking {:?}.", block);
+            bk_log!(self;ind, "Shrinking {:?}.", block);
 
             // Split the block in two segments, the main segment and the excessive segment.
             let (block, excessive) = block.split(new_size);
@@ -555,7 +557,7 @@ pub trait Allocator: ops::DerefMut<Target = Bookkeeper> {
             // the current block.
             if mergable {
                 // Logging...
-                log!(self;ind, "Merging {:?} to the right.", block);
+                bk_log!(self;ind, "Merging {:?} to the right.", block);
 
                 // We'll merge it with the block at the end of the range.
                 block.merge_right(&mut self.remove_at(ind.end))
@@ -591,7 +593,7 @@ pub trait Allocator: ops::DerefMut<Target = Bookkeeper> {
     #[inline]
     fn free_bound(&mut self, ind: Range<usize>, mut block: Block) {
         // Logging.
-        log!(self;ind, "Freeing {:?}.", block);
+        bk_log!(self;ind, "Freeing {:?}.", block);
 
         // Short circuit in case of empty block.
         if block.is_empty() { return; }
@@ -643,7 +645,7 @@ pub trait Allocator: ops::DerefMut<Target = Bookkeeper> {
     /// The returned pointer is guaranteed to be aligned to `align`.
     fn alloc_external(&mut self, size: usize, align: usize) -> Block {
         // Logging.
-        log!(self, "Fresh allocation of size {} with alignment {}.", size, align);
+        bk_log!(self, "Fresh allocation of size {} with alignment {}.", size, align);
 
         // Break it to me!
         let res = self.alloc_fresh(size, align);
@@ -658,7 +660,7 @@ pub trait Allocator: ops::DerefMut<Target = Bookkeeper> {
     // TODO: Make `push` and `free` one.
     fn push(&mut self, block: Block) {
         // Logging.
-        log!(self;self.pool.len(), "Pushing {:?}.", block);
+        bk_log!(self;self.pool.len(), "Pushing {:?}.", block);
 
         // Mark the block free.
         let mut block = block.mark_free();
@@ -732,11 +734,12 @@ pub trait Allocator: ops::DerefMut<Target = Bookkeeper> {
     /// prior to call of this function, it should be too after it.
     fn reserve(&mut self, min_cap: usize) -> Option<Block> {
         // Logging.
-        log!(self;min_cap, "Reserving {}.", min_cap);
+        bk_log!(self;min_cap, "Reserving {}.", min_cap);
 
         if !self.reserving && (self.pool.capacity() < self.pool.len() + EXTRA_ELEMENTS || self.pool.capacity() < min_cap + EXTRA_ELEMENTS) {
             // Reserve a little extra for performance reasons.
-            let new_cap = (min_cap + EXTRA_ELEMENTS) * 2 + 16;
+            // TODO: This should be moved to some new method.
+            let new_cap = min_cap + EXTRA_ELEMENTS + config::extra_fresh(min_cap);
 
             // Catch 'em all.
             debug_assert!(new_cap > self.pool.capacity(), "Reserve shrinks?!");
@@ -826,7 +829,7 @@ pub trait Allocator: ops::DerefMut<Target = Bookkeeper> {
     #[inline]
     fn insert(&mut self, ind: usize, block: Block) {
         // Logging.
-        log!(self;ind, "Inserting block {:?}...", block);
+        bk_log!(self;ind, "Inserting block {:?}...", block);
 
         // Bound check.
         assert!(self.pool.len() >= ind, "Insertion out of bounds.");
@@ -852,40 +855,37 @@ pub trait Allocator: ops::DerefMut<Target = Bookkeeper> {
             .map(|(n, _)| n);
 
         // Log the operation.
-        log!(self;ind, "Moving all blocks right to {} blocks to the right.",
+        bk_log!(self;ind, "Moving all blocks right to {} blocks to the right.",
              gap.unwrap_or_else(|| self.pool.len()));
 
         // The old vector's buffer.
         let mut old_buf = None;
-
-        // We will only extend the length if we were unable to fit it into the current length.
-        if gap.is_none() {
-            // Loooooooging...
-            log!(self;ind, "Block pool not long enough for shift. Extending.");
-
-            // Reserve space. This does not break order, due to the assumption that
-            // `reserve` never breaks order.
-            old_buf = unborrow!(self.reserve(self.pool.len() + 1));
-
-            // We will move a block into reserved memory but outside of the vec's bounds. For
-            // that reason, we push an uninitialized element to extend the length, which will
-            // be assigned in the memcpy.
-            let res = self.pool.push(unsafe { mem::uninitialized() });
-
-            // Just some assertions...
-            debug_assert!(res.is_ok(), "Push failed (buffer full).");
-        }
 
         unsafe {
             // Memmove the elements to make a gap to the new block.
             ptr::copy(self.pool.get_unchecked(ind) as *const Block,
                       self.pool.get_unchecked_mut(ind + 1) as *mut Block,
                       // The gap defaults to the end of the pool.
-                      gap.unwrap_or_else(|| self.pool.len() - 1) - ind);
-                      //                                    ^^^
-                      // We decrement to account for the push. Please note how we only push in the
-                      // `if` block above with the conditional that `gap` is `None`, which is the
-                      // case where the closure is evaluated.
+                      gap.unwrap_or_else(|| {
+                          // We will only extend the length if we were unable to fit it into the current length.
+
+                          // Loooooooging...
+                          bk_log!(self;ind, "Block pool not long enough for shift. Extending.");
+
+                          // Reserve space. This does not break order, due to the assumption that
+                          // `reserve` never breaks order.
+                          old_buf = unborrow!(self.reserve(self.pool.len() + 1));
+
+                          // We will move a block into reserved memory but outside of the vec's bounds. For
+                          // that reason, we push an uninitialized element to extend the length, which will
+                          // be assigned in the memcpy.
+                          let res = self.pool.push(mem::uninitialized());
+
+                          // Just some assertions...
+                          debug_assert!(res.is_ok(), "Push failed (buffer full).");
+
+                          self.pool.len() - 1
+                      }) - ind);
 
             // Update the pool byte count.
             self.total_bytes += block.size();
@@ -905,7 +905,7 @@ pub trait Allocator: ops::DerefMut<Target = Bookkeeper> {
     /// Remove a block.
     fn remove_at(&mut self, ind: usize) -> Block {
         // Logging.
-        log!(self;ind, "Removing block at {}.", ind);
+        bk_log!(self;ind, "Removing block at {}.", ind);
 
         let res = if ind + 1 == self.pool.len() {
             let block = self.pool[ind].pop();

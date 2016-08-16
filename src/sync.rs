@@ -1,10 +1,10 @@
 //! Synchronization primitives.
 
-use sys;
-
 use core::cell::UnsafeCell;
 use core::sync::atomic::{self, AtomicBool};
 use core::ops;
+
+use shim;
 
 /// A mutual exclusive container.
 ///
@@ -42,7 +42,7 @@ impl<T> Mutex<T> {
             // {O,o}
             // |)``)
             // SRSLY?
-            sys::yield_now();
+            shim::syscalls::sched_yield();
         }
 
         MutexGuard {

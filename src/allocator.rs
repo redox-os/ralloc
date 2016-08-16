@@ -9,6 +9,8 @@ use core::{mem, ops};
 use {brk, sync};
 use bookkeeper::{self, Bookkeeper, Allocator};
 
+use shim::config;
+
 #[cfg(feature = "tls")]
 use tls;
 
@@ -58,6 +60,7 @@ macro_rules! get_allocator {
                 } else {
                     // The local allocator seems to have been deinitialized, for this reason we fallback to
                     // the global allocator.
+                    log!(WARNING, "Accessing the allocator after deinitialization of the local allocator.");
 
                     // Lock the global allocator.
                     let mut guard = GLOBAL_ALLOCATOR.lock();
@@ -116,6 +119,9 @@ struct GlobalAllocator {
 impl GlobalAllocator {
     /// Initialize the global allocator.
     fn init() -> GlobalAllocator {
+        /// Logging...
+        log!(NOTE, "Initializing the global allocator.");
+
         // The initial acquired segment.
         let (aligner, initial_segment, excessive) =
             brk::lock().canonical_brk(4 * bookkeeper::EXTRA_ELEMENTS * mem::size_of::<Block>(), mem::align_of::<Block>());
@@ -153,22 +159,14 @@ impl Allocator for GlobalAllocator {
     }
 
     fn on_new_memory(&mut self) {
-        /// The memtrim limit.
-        ///
-        /// Whenever this is exceeded, the allocator will try to free as much memory to the system
-        /// as it can.
-        const OS_MEMTRIM_LIMIT: usize = 200000000;
-        /// Minimum size before a block is worthy to memtrim.
-        const MEMTRIM_WORTHY: usize = 4000;
-
-        if self.total_bytes() > OS_MEMTRIM_LIMIT {
+        if self.total_bytes() > config::OS_MEMTRIM_LIMIT {
             // memtrim the fack outta 'em.
 
             // Pop the last block.
             let block = self.pop().expect("The byte count on the global allocator is invalid.");
 
             // Check if the memtrim is worth it.
-            if block.size() >= MEMTRIM_WORTHY {
+            if block.size() >= config::OS_MEMTRIM_WORTHY {
                 // Release the block to the OS.
                 if let Err(block) = brk::lock().release(block) {
                     // It failed, put the block back.
@@ -205,6 +203,9 @@ impl LocalAllocator {
         ///
         /// This will simply free everything to the global allocator.
         extern fn dtor(alloc: &ThreadLocalAllocator) {
+            /// Logging...
+            log!(NOTE, "Initializing the local allocator.");
+
             // This is important! The thread destructors guarantee no other, and thus one could use the
             // allocator _after_ this destructor have been finished. In fact, this is a real problem,
             // and happens when using `Arc` and terminating the main thread, for this reason we place
@@ -231,8 +232,7 @@ impl LocalAllocator {
 
         unsafe {
             // Register the thread destructor on the current thread.
-            THREAD_ALLOCATOR.register_thread_destructor(dtor)
-                .expect("Unable to register a thread destructor.");
+            THREAD_ALLOCATOR.register_thread_destructor(dtor);
 
             LocalAllocator {
                 inner: Bookkeeper::new(Vec::from_raw_parts(initial_segment, 0)),
@@ -245,18 +245,7 @@ impl LocalAllocator {
     /// The idea is to free memory to the global allocator to unify small stubs and avoid
     /// fragmentation and thread accumulation.
     fn should_memtrim(&self) -> bool {
-        // TODO: Tweak this.
-
-        /// The fragmentation scale constant.
-        ///
-        /// This is used for determining the minimum avarage block size before memtrimming.
-        const FRAGMENTATION_SCALE: usize = 10;
-        /// The local memtrim limit.
-        ///
-        /// Whenever an allocator has more free bytes than this value, it will be memtrimmed.
-        const LOCAL_MEMTRIM_LIMIT: usize = 16384;
-
-        self.total_bytes() < FRAGMENTATION_SCALE * self.len() || self.total_bytes() > LOCAL_MEMTRIM_LIMIT
+        self.total_bytes() < config::FRAGMENTATION_SCALE * self.len() || self.total_bytes() > config::LOCAL_MEMTRIM_LIMIT
     }
 }
 
@@ -297,6 +286,8 @@ impl Allocator for LocalAllocator {
 /// The OOM handler handles out-of-memory conditions.
 #[inline]
 pub fn alloc(size: usize, align: usize) -> *mut u8 {
+    log!(CALL, "Allocating buffer of size {} (align {}).", size, align);
+
     get_allocator!(|alloc| *Pointer::from(alloc.alloc(size, align)))
 }
 
@@ -322,6 +313,8 @@ pub fn alloc(size: usize, align: usize) -> *mut u8 {
 /// Secondly, freeing an used buffer can introduce use-after-free.
 #[inline]
 pub unsafe fn free(ptr: *mut u8, size: usize) {
+    log!(CALL, "Freeing buffer of size {}.", size);
+
     get_allocator!(|alloc| alloc.free(Block::from_raw_parts(Pointer::new(ptr), size)))
 }
 
@@ -345,6 +338,8 @@ pub unsafe fn free(ptr: *mut u8, size: usize) {
 /// this is marked unsafe.
 #[inline]
 pub unsafe fn realloc(ptr: *mut u8, old_size: usize, size: usize, align: usize) -> *mut u8 {
+    log!(CALL, "Reallocating buffer of size {} to new size {}.", old_size, size);
+
     get_allocator!(|alloc| {
         *Pointer::from(alloc.realloc(
             Block::from_raw_parts(Pointer::new(ptr), old_size),
@@ -365,6 +360,8 @@ pub unsafe fn realloc(ptr: *mut u8, old_size: usize, size: usize, align: usize) 
 /// Due to being able to shrink (and thus free) the buffer, this is marked unsafe.
 #[inline]
 pub unsafe fn realloc_inplace(ptr: *mut u8, old_size: usize, size: usize) -> Result<(), ()> {
+    log!(CALL, "Inplace reallocating buffer of size {} to new size {}.", old_size, size);
+
     get_allocator!(|alloc| {
         if alloc.realloc_inplace(
             Block::from_raw_parts(Pointer::new(ptr), old_size),

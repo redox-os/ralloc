@@ -26,10 +26,8 @@
 #[macro_use]
 #[no_link]
 extern crate unborrow;
+extern crate ralloc_shim as shim;
 
-#[cfg(feature = "write")]
-#[macro_use]
-mod write;
 #[macro_use]
 mod log;
 #[macro_use]
@@ -49,7 +47,6 @@ mod leak;
 mod prelude;
 mod ptr;
 mod sync;
-mod sys;
 mod vec;
 
 pub use allocator::{alloc, free, realloc, realloc_inplace};

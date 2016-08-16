@@ -4,6 +4,50 @@
 
 /// Log to the appropriate source.
 ///
+/// The first argument defines the log level, the rest of the arguments are just `write!`-like
+/// formatters.
+#[macro_export]
+macro_rules! log {
+    (INTERNAL, $( $x:tt )*) => {
+        log!(@["INTERNAL: ", 1], $( $x )*);
+    };
+    (DEBUG, $( $x:tt )*) => {
+        log!(@["DEBUG:    ", 2], $( $x )*);
+    };
+    (CALL, $( $x:tt )*) => {
+        log!(@["CALL:     ", 3], $( $x )*);
+    };
+    (NOTE, $( $x:tt )*) => {
+        log!(@["NOTE:     ", 5], $( $x )*);
+    };
+    (WARNING, $( $x:tt )*) => {
+        log!(@["WARNING:  ", 5], $( $x )*);
+    };
+    (ERROR, $( $x:tt )*) => {
+        log!(@["ERROR:    ", 6], $( $x )*);
+    };
+    (@[$kind:expr, $lv:expr], $( $arg:expr ),*) => {
+        #[cfg(feature = "log")]
+        {
+            use core::fmt::Write;
+
+            use log::internal::{LogWriter, level};
+
+            // Set the level.
+            if level($lv) {
+                // Print the pool state.
+                let mut log = LogWriter::new();
+                // Print the log message.
+                let _ = write!(log, $kind);
+                let _ = write!(log, $( $arg ),*);
+                let _ = writeln!(log, " (at {}:{})", file!(), line!());
+            }
+        }
+    };
+}
+
+/// Log with bookkeeper data to the appropriate source.
+///
 /// The first argument this takes is of the form `pool;cursor`, which is used to print the
 /// block pools state. `cursor` is what the operation "revolves around" to give a sense of
 /// position.
@@ -11,43 +55,127 @@
 /// If the `;cursor` part is left out, no cursor will be printed.
 ///
 /// The rest of the arguments are just normal formatters.
+///
+/// This logs to level 2.
 #[macro_export]
-macro_rules! log {
+macro_rules! bk_log {
     ($pool:expr, $( $arg:expr ),*) => {
-        log!($pool;(), $( $arg ),*);
+        bk_log!($pool;(), $( $arg ),*);
     };
     ($bk:expr;$cur:expr, $( $arg:expr ),*) => {
         #[cfg(feature = "log")]
         {
-            use core::fmt::Write;
+            use log::internal::{IntoCursor, BlockLogger};
 
-            use {write, log};
-            use log::internal::IntoCursor;
-
-            // Print the pool state.
-            let mut log = write::LogWriter::new();
-            let _ = write!(log, "({:2})   {:10?} : ", $bk.id, log::internal::BlockLogger {
+            log!(INTERNAL, "({:2})   {:10?} : ", $bk.id, BlockLogger {
                 cur: $cur.clone().into_cursor(),
                 blocks: &$bk.pool,
             });
-
-            // Print the log message.
-            let _ = write!(log, $( $arg ),*);
-            let _ = writeln!(log, " (at {}:{})", file!(), line!());
         }
     };
 }
 
-/// Top secret place-holding module.
-#[macro_use]
+/// Make a runtime assertion.
+///
+/// The only way it differs from the one provided by `libcore` is the panicking strategy, which
+/// allows for aborting, non-allocating panics when running the tests.
+#[macro_export]
+#[cfg(feature = "write")]
+macro_rules! assert {
+    ($e:expr) => {
+        assert!($e, "No description.");
+    };
+    ($e:expr, $( $arg:expr ),*) => {{
+        use core::intrinsics;
+
+        if !$e {
+            log!(ERROR, $( $arg ),*);
+
+            #[allow(unused_unsafe)]
+            unsafe { intrinsics::abort() }
+        }
+    }}
+}
+
+/// Make a runtime assertion in debug mode.
+///
+/// The only way it differs from the one provided by `libcore` is the panicking strategy, which
+/// allows for aborting, non-allocating panics when running the tests.
+#[cfg(feature = "write")]
+#[macro_export]
+macro_rules! debug_assert {
+    // We force the programmer to provide explanation of their assertion.
+    ($first:expr, $( $arg:tt )*) => {{
+        if cfg!(debug_assertions) {
+            assert!($first, $( $arg )*);
+        }
+    }}
+}
+
+/// Make a runtime equality assertion in debug mode.
+///
+/// The only way it differs from the one provided by `libcore` is the panicking strategy, which
+/// allows for aborting, non-allocating panics when running the tests.
+#[cfg(feature = "write")]
+#[macro_export]
+macro_rules! assert_eq {
+    ($left:expr, $right:expr) => ({
+        // We evaluate _once_.
+        let left = &$left;
+        let right = &$right;
+
+        assert!(left == right, "(left: `{:?}`, right: `{:?}`)", left, right)
+    })
+}
+
+/// Top-secret module.
 #[cfg(feature = "log")]
 pub mod internal {
     use prelude::*;
 
     use core::fmt;
-
     use core::cell::Cell;
     use core::ops::Range;
+
+    use shim::config;
+
+    use sync;
+
+    /// The log lock.
+    ///
+    /// This lock is used to avoid bungling and intertwining the log.
+    #[cfg(not(feature = "no_log_lock"))]
+    pub static LOG_LOCK: Mutex<()> = Mutex::new(());
+
+    /// A log writer.
+    ///
+    /// This writes to the shim logger.
+    pub struct LogWriter {
+        /// The inner lock.
+        #[cfg(not(feature = "no_log_lock"))]
+        _lock: sync::MutexGuard<'static, ()>,
+    }
+
+    impl LogWriter {
+        /// Standard error output.
+        pub fn new() -> LogWriter {
+            #[cfg(feature = "no_log_lock")]
+            {
+                LogWriter {}
+            }
+
+            #[cfg(not(feature = "no_log_lock"))]
+            LogWriter {
+                _lock: LOG_LOCK.lock(),
+            }
+        }
+    }
+
+    impl fmt::Write for LogWriter {
+        fn write_str(&mut self, s: &str) -> fmt::Result {
+            if config::log(s) == !0 { Err(fmt::Error) } else { Ok(()) }
+        }
+    }
 
     /// A "cursor".
     ///
@@ -204,5 +332,12 @@ pub mod internal {
 
             Ok(())
         }
+    }
+
+    /// Check if this log level is enabled.
+    #[allow(absurd_extreme_comparisons)]
+    #[inline]
+    pub fn level(lv: u8) -> bool {
+        lv >= config::MIN_LOG_LEVEL
     }
 }

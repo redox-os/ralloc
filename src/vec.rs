@@ -48,6 +48,8 @@ impl<T: Leak> Vec<T> {
     ///
     /// This panics if the vector is bigger than the block.
     pub fn refill(&mut self, block: Block) -> Block {
+        log!(INTERNAL, "Refilling vector...");
+
         // Calculate the new capacity.
         let new_cap = block.size() / mem::size_of::<T>();
 

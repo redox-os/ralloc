@@ -9,8 +9,6 @@ use prelude::*;
 
 use core::{ptr, cmp, mem, fmt};
 
-use sys;
-
 /// A contiguous memory block.
 ///
 /// This provides a number of guarantees,
@@ -123,6 +121,8 @@ impl Block {
     /// This will panic if the target block is smaller than the source.
     #[inline]
     pub fn copy_to(&self, block: &mut Block) {
+        log!(INTERNAL, "Copying {:?} to {:?}", *self, *block);
+
         // Bound check.
         assert!(self.size <= block.size, "Block too small.");
 
@@ -136,6 +136,8 @@ impl Block {
         use core::intrinsics;
 
         if cfg!(feature = "security") {
+            log!(INTERNAL, "Zeroing {:?}", *self);
+
             unsafe {
                 intrinsics::volatile_set_memory(*self.ptr, 0, self.size);
             }
@@ -224,7 +226,8 @@ impl Block {
     /// the debugger that this block is freed.
     #[inline]
     pub fn mark_free(self) -> Block {
-        sys::mark_free(*self.ptr as *const u8, self.size);
+        #[cfg(feature = "debugger")]
+        ::shim::debug::mark_free(*self.ptr as *const u8, self.size);
 
         self
     }
@@ -234,7 +237,8 @@ impl Block {
     /// To detect use-after-free, the allocator need to mark
     #[inline]
     pub fn mark_uninitialized(self) -> Block {
-        sys::mark_uninitialized(*self.ptr as *const u8, self.size);
+        #[cfg(feature = "debugger")]
+        ::shim::debug::mark_unintialized(*self.ptr as *const u8, self.size);
 
         self
     }

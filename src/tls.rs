@@ -4,7 +4,7 @@
 
 use core::{marker, mem};
 
-use sys;
+use shim::thread_destructor;
 
 /// A thread-local container.
 pub struct Key<T: 'static> {
@@ -39,8 +39,10 @@ impl<T: 'static> Key<T> {
     /// Note that this has to be registered for every thread, it is needed for.
     // TODO: Make this automatic on `Drop`.
     #[inline]
-    pub fn register_thread_destructor(&'static self, dtor: extern fn(&T)) -> Result<(), ()> {
-        sys::register_thread_destructor(&self.inner as *const T as *mut T, unsafe { mem::transmute(dtor) })
+    pub fn register_thread_destructor(&'static self, dtor: extern fn(&T)) {
+        // This is safe due to sharing memory layout.
+        thread_destructor::register(&self.inner as *const T as *const u8 as *mut u8,
+                                    unsafe { mem::transmute(dtor) });
     }
 }
 
