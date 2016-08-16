@@ -55,6 +55,37 @@ the `debugger` feature is enabled. The default `shim` implementation is wired
 to `valgrind`, which can thus be used with `ralloc` to detect memory leaks and
 uninitialized use out-of-the-box.
 
+### Everything is customizable
+
+You can configure, tweak, and customize almost everything in `ralloc`. By
+changing the `shim` module, this is easily achieved.
+
+For example, you can change the reallocation strategy, the memtrim limits, the
+log target, and so on.
+
+### Logging
+
+If you enable the `log` feature, you get detailed logging of the allocator, e.g.
+
+```
+|   : BRK'ing a block of size, 80, and alignment 8.            (at bookkeeper.rs:458)
+|   : Pushing 0x5578dacb2000[0x0] and 0x5578dacb2050[0xffb8].  (at bookkeeper.rs:490)
+|x  : Freeing 0x1[0x0].                                        (at bookkeeper.rs:409)
+x|  : BRK'ing a block of size, 4, and alignment 1.             (at bookkeeper.rs:458)
+x|  : Pushing 0x5578dacc2008[0x0] and 0x5578dacc200c[0xfffd].  (at bookkeeper.rs:490)
+x|x : Reallocating 0x5578dacc2008[0x4] to size 8 with align 1. (at bookkeeper.rs:272)
+x|x : Inplace reallocating 0x5578dacc2008[0x4] to size 8.      (at bookkeeper.rs:354)
+_|x : Freeing 0x5578dacb2058[0xffb0].                          (at bookkeeper.rs:409)
+_|x : Inserting block 0x5578dacb2058[0xffb0].                  (at bookkeeper.rs:635)
+```
+
+To the left, you can see the state of the block pool. `x` denotes a non-empty
+block, `_` denotes an empty block, and `|` denotes the cursor.
+
+The `a[b]` is a syntax for block on address `a` with size `b`.
+
+You can set the log level (e.g. to avoid too much information) in `shim`.
+
 ### Custom out-of-memory handlers
 
 You can set custom OOM handlers, by:
@@ -201,27 +232,6 @@ fn main() {
     let ptr = unsafe { ralloc::sbrk(20) };
 }
 ```
-
-### Logging
-
-If you enable the `log` feature, you get detailed logging of the allocator, e.g.
-
-```
-|   : BRK'ing a block of size, 80, and alignment 8.            (at bookkeeper.rs:458)
-|   : Pushing 0x5578dacb2000[0x0] and 0x5578dacb2050[0xffb8].  (at bookkeeper.rs:490)
-|x  : Freeing 0x1[0x0].                                        (at bookkeeper.rs:409)
-x|  : BRK'ing a block of size, 4, and alignment 1.             (at bookkeeper.rs:458)
-x|  : Pushing 0x5578dacc2008[0x0] and 0x5578dacc200c[0xfffd].  (at bookkeeper.rs:490)
-x|x : Reallocating 0x5578dacc2008[0x4] to size 8 with align 1. (at bookkeeper.rs:272)
-x|x : Inplace reallocating 0x5578dacc2008[0x4] to size 8.      (at bookkeeper.rs:354)
-_|x : Freeing 0x5578dacb2058[0xffb0].                          (at bookkeeper.rs:409)
-_|x : Inserting block 0x5578dacb2058[0xffb0].                  (at bookkeeper.rs:635)
-```
-
-To the left, you can see the state of the block pool. `x` denotes a non-empty
-block, `_` denotes an empty block, and `|` denotes the cursor.
-
-The `a[b]` is a syntax for block on address `a` with size `b`.
 
 ### Useless alignments
 
