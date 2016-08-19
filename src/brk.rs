@@ -39,7 +39,7 @@ impl BrkLock {
     ///
     /// Due to being able shrink the program break, this method is unsafe.
     unsafe fn sbrk(&mut self, size: isize) -> Result<Pointer<u8>, ()> {
-        log!(NOTE, "BRKing new space.");
+        log!(NOTE, "Incrementing the program break by {} bytes.", size);
 
         // Calculate the new program break. To avoid making multiple syscalls, we make use of the
         // state cache.
@@ -48,16 +48,23 @@ impl BrkLock {
         // Break it to me, babe!
         let old_brk = Pointer::new(syscalls::brk(*expected_brk as *const u8) as *mut u8);
 
-        if expected_brk == old_brk && size != 0 {
-            // BRK failed. This syscall is rather weird, but whenever it fails (e.g. OOM) it
-            // returns the old (unchanged) break.
-            Err(())
-        } else {
+        /// AAAARGH WAY TOO MUCH LOGGING
+        ///
+        /// No, sweetie. Never too much logging.
+        ///
+        /// REEEEEEEEEEEEEEEEEEEEEE
+        log!(INTERNAL, "Program break set.");
+
+        if expected_brk == old_brk {
             // Update the program break cache.
             self.state.current_brk = Some(expected_brk.clone());
 
             // Return the old break.
             Ok(old_brk)
+        } else {
+            // BRK failed. This syscall is rather weird, but whenever it fails (e.g. OOM) it
+            // returns the old (unchanged) break.
+            Err(())
         }
     }
 
@@ -68,6 +75,7 @@ impl BrkLock {
     pub fn release(&mut self, block: Block) -> Result<(), Block> {
         // Check if we are actually next to the program break.
         if self.current_brk() == Pointer::from(block.empty_right()) {
+            // Logging...
             log!(DEBUG, "Releasing {:?} to the OS.", block);
 
             // We are. Now, sbrk the memory back. Do to the condition above, this is safe.
@@ -78,6 +86,9 @@ impl BrkLock {
 
             Ok(())
         } else {
+            // Logging...
+            log!(DEBUG, "Unable to release {:?} to the OS.", block);
+
             // Return the block back.
             Err(block)
         }
@@ -88,7 +99,13 @@ impl BrkLock {
     /// If not available in the cache, requested it from the OS.
     fn current_brk(&mut self) -> Pointer<u8> {
         if let Some(ref cur) = self.state.current_brk {
-            return cur.clone();
+            let res = cur.clone();
+            // Make sure that the break is set properly (i.e. there is no libc interference).
+            debug_assert!(res == current_brk(), "The cached program break is out of sync with the \
+                          actual program break. Are you interfering with BRK? If so, prefer the \
+                          provided 'sbrk' instead, then.");
+
+            return res;
         }
 
         // TODO: Damn it, borrowck.

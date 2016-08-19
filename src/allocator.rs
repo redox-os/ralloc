@@ -167,6 +167,9 @@ impl Allocator for GlobalAllocator {
 
             // Check if the memtrim is worth it.
             if block.size() >= config::OS_MEMTRIM_WORTHY {
+                /// Logging...
+                log!(NOTE, "Memtrimming the global allocator.");
+
                 // Release the block to the OS.
                 if let Err(block) = brk::lock().release(block) {
                     // It failed, put the block back.
@@ -178,6 +181,9 @@ impl Allocator for GlobalAllocator {
                 // segments being as long as possible. For that reason, repeating to push and
                 // release would fail.
             } else {
+                /// Logging...
+                log!(WARNING, "Memtrimming for the global allocator failed.");
+
                 // Push the block back.
                 // TODO: This can be done faster.
                 self.push(block);
@@ -204,7 +210,7 @@ impl LocalAllocator {
         /// This will simply free everything to the global allocator.
         extern fn dtor(alloc: &ThreadLocalAllocator) {
             /// Logging...
-            log!(NOTE, "Initializing the local allocator.");
+            log!(NOTE, "Deinitializing and freeing the local allocator.");
 
             // This is important! The thread destructors guarantee no other, and thus one could use the
             // allocator _after_ this destructor have been finished. In fact, this is a real problem,
@@ -224,6 +230,9 @@ impl LocalAllocator {
             alloc.into_inner().inner.for_each(move |block| global_alloc.free(block));
         }
 
+        /// Logging...
+        log!(NOTE, "Initializing the local allocator.");
+
         // The initial acquired segment.
         let initial_segment = GLOBAL_ALLOCATOR
             .lock()
@@ -238,14 +247,6 @@ impl LocalAllocator {
                 inner: Bookkeeper::new(Vec::from_raw_parts(initial_segment, 0)),
             }
         }
-    }
-
-    /// Shuld we memtrim this allocator?
-    ///
-    /// The idea is to free memory to the global allocator to unify small stubs and avoid
-    /// fragmentation and thread accumulation.
-    fn should_memtrim(&self) -> bool {
-        self.total_bytes() < config::FRAGMENTATION_SCALE * self.len() || self.total_bytes() > config::LOCAL_MEMTRIM_LIMIT
     }
 }
 
@@ -263,7 +264,13 @@ impl Allocator for LocalAllocator {
 
     #[inline]
     fn on_new_memory(&mut self) {
-        if self.should_memtrim() {
+        // The idea is to free memory to the global allocator to unify small stubs and avoid
+        // fragmentation and thread accumulation.
+        if self.total_bytes() < config::FRAGMENTATION_SCALE * self.len()
+           || self.total_bytes() > config::LOCAL_MEMTRIM_LIMIT {
+            // Log stuff.
+            log!(NOTE, "Memtrimming the local allocator.");
+
             // Lock the global allocator.
             let mut global_alloc = GLOBAL_ALLOCATOR.lock();
             let global_alloc = global_alloc.get();
@@ -272,8 +279,8 @@ impl Allocator for LocalAllocator {
                 // Pop'n'free.
                 global_alloc.free(block);
 
-                // Memtrim 'till we can't memtrim anymore.
-                if !self.should_memtrim() { break; }
+                // Memtrim 'till we won't memtrim anymore.
+                if self.total_bytes() < config::LOCAL_MEMTRIM_STOP { break; }
             }
         }
     }

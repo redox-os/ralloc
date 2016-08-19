@@ -76,7 +76,7 @@ pub fn set_thread_oom_handler(handler: fn() -> !) {
         let res = thread_oom.replace(Some(handler));
 
         // Throw a warning if it overrides another handler.
-        if cfg!(debug_assertions) && res.is_some() {
+        if res.is_some() {
             log!(WARNING, "An old thread OOM handler was overriden.");
         }
     });

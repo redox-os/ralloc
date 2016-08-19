@@ -7,7 +7,7 @@ use core::{ops, marker};
 ///
 /// A wrapper around a raw non-null `*mut T` that indicates that the possessor of this wrapper owns
 /// the referent.
-#[derive(PartialEq, Debug, Clone)]
+#[derive(PartialEq, Eq, Debug, Clone)]
 pub struct Pointer<T> {
     /// The internal pointer.
     ptr: NonZero<*mut T>,

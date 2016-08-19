@@ -67,10 +67,10 @@ macro_rules! bk_log {
         {
             use log::internal::{IntoCursor, BlockLogger};
 
-            log!(INTERNAL, "({:2})   {:10?} : ", $bk.id, BlockLogger {
+            log!(INTERNAL, "({:2}) {:10?} : {}", $bk.id, BlockLogger {
                 cur: $cur.clone().into_cursor(),
                 blocks: &$bk.pool,
-            });
+            }, format_args!($( $arg ),*));
         }
     };
 }
@@ -124,7 +124,7 @@ macro_rules! assert_eq {
         let left = &$left;
         let right = &$right;
 
-        assert!(left == right, "(left: `{:?}`, right: `{:?}`)", left, right)
+        assert!(left == right, "(left: '{:?}', right: '{:?}')", left, right)
     })
 }
 

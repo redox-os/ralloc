@@ -31,6 +31,9 @@ impl<T: 'static> Key<T> {
     #[inline]
     pub fn with<F, R>(&'static self, f: F) -> R
         where F: FnOnce(&T) -> R {
+        // Logging.
+        log!(INTERNAL, "Accessing TLS variable.");
+
         f(&self.inner)
     }
 
@@ -40,6 +43,9 @@ impl<T: 'static> Key<T> {
     // TODO: Make this automatic on `Drop`.
     #[inline]
     pub fn register_thread_destructor(&'static self, dtor: extern fn(&T)) {
+        // Logging.
+        log!(INTERNAL, "Registering thread destructor.");
+
         // This is safe due to sharing memory layout.
         thread_destructor::register(&self.inner as *const T as *const u8 as *mut u8,
                                     unsafe { mem::transmute(dtor) });

@@ -20,6 +20,11 @@ pub const FRAGMENTATION_SCALE: usize = 10;
 ///
 /// Whenever an local allocator has more free bytes than this value, it will be memtrimmed.
 pub const LOCAL_MEMTRIM_LIMIT: usize = 16384;
+/// The local memtrim chock.
+///
+/// The local memtrimming will continue until the allocator has less memory (in bytes, of course)
+/// than this value.
+pub const LOCAL_MEMTRIM_STOP: usize = 1024;
 
 /// The minimum log level.
 pub const MIN_LOG_LEVEL: u8 = 0;

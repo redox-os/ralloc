@@ -131,7 +131,7 @@ impl Block {
         }
     }
 
-    /// Volatile zero this memory.
+    /// Volatile zero this memory if the `security` feature is set.
     pub fn sec_zero(&mut self) {
         use core::intrinsics;
 
@@ -191,6 +191,12 @@ impl Block {
     #[inline]
     #[allow(cast_possible_wrap)]
     pub fn align(&mut self, align: usize) -> Option<(Block, Block)> {
+        // Logging.
+        log!(INTERNAL, "Padding {:?} to align {}", self, align);
+
+        // TODO: This functions suffers from external fragmentation. Leaving bigger segments might
+        // increase performance.
+
         // Calculate the aligner, which defines the smallest size required as precursor to align
         // the block to `align`.
         let aligner = (align - *self.ptr as usize % align) % align;
@@ -217,7 +223,12 @@ impl Block {
                     },
                 }
             ))
-        } else { None }
+        } else {
+            // Logging.
+            log!(INTERNAL, "Unable to align block.");
+
+            None
+        }
     }
 
     /// Mark this block free to the debugger.

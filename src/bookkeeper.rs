@@ -175,7 +175,15 @@ impl Bookkeeper {
 
     /// Pop the top block from the pool.
     pub fn pop(&mut self) -> Option<Block> {
-        self.pool.pop()
+        self.pool.pop().map(|res| {
+            // Update the byte count.
+            self.total_bytes -= res.size();
+
+            // Check stuff, just in case.
+            self.check();
+
+            res
+        })
     }
 
     /// Get the length of the pool.
@@ -240,8 +248,8 @@ impl Bookkeeper {
             }
 
             // Make sure the sum is maintained properly.
-            assert!(total_bytes == self.total_bytes, "The sum is not equal to the `total_bytes` \
-                    field. ({} ≠ {}).", total_bytes, self.total_bytes);
+            assert!(total_bytes == self.total_bytes, "The sum is not equal to the 'total_bytes' \
+                    field: {} ≠ {}.", total_bytes, self.total_bytes);
         }
     }
 }
@@ -343,13 +351,13 @@ pub trait Allocator: ops::DerefMut<Target = Bookkeeper> {
                 None
             }
         }).next() {
+            // Update the pool byte count.
+            self.total_bytes -= b.size();
+
             if self.pool[n].is_empty() {
                 // For empty alignment invariant.
                 let _ = self.remove_at(n);
             }
-
-            // Update the pool byte count.
-            self.total_bytes -= b.size();
 
             // Split and mark the block uninitialized to the debugger.
             let (res, excessive) = b.mark_uninitialized().split(size);
@@ -686,9 +694,8 @@ pub trait Allocator: ops::DerefMut<Target = Bookkeeper> {
 
             // Reserve space and free the old buffer.
             if let Some(x) = unborrow!(self.reserve(self.pool.len() + 1)) {
-                // `free` handles the count, so we set it back.
-                // TODO: Find a better way to do so.
-                self.total_bytes -= block.size();
+                // Note that we do not set the count down because this isn't setting back our
+                // pushed block.
 
                 self.free(x);
             }
@@ -924,7 +931,7 @@ pub trait Allocator: ops::DerefMut<Target = Bookkeeper> {
             // Replace the block at `ind` with the left empty block from `ind + 1`.
             let block = mem::replace(&mut self.pool[ind], empty);
 
-            // Iterate over the pool from `ind` and down.
+            // Iterate over the pool from `ind` and down and set it to the  empty of our block.
             let skip = self.pool.len() - ind;
             for place in self.pool.iter_mut().rev().skip(skip).take_while(|x| x.is_empty()) {
                 // Empty the blocks.
