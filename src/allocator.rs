@@ -129,6 +129,8 @@ impl GlobalAllocator {
         // Initialize the new allocator.
         let mut res = GlobalAllocator {
             inner: Bookkeeper::new(unsafe {
+                // LAST AUDIT: 2016-08-21 (Ticki).
+
                 Vec::from_raw_parts(initial_segment, 0)
             }),
         };
@@ -240,6 +242,8 @@ impl LocalAllocator {
             .alloc(4 * bookkeeper::EXTRA_ELEMENTS * mem::size_of::<Block>(), mem::align_of::<Block>());
 
         unsafe {
+            // LAST AUDIT: 2016-08-21 (Ticki).
+
             // Register the thread destructor on the current thread.
             THREAD_ALLOCATOR.register_thread_destructor(dtor);
 

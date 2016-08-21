@@ -79,7 +79,13 @@ impl BrkLock {
             log!(DEBUG, "Releasing {:?} to the OS.", block);
 
             // We are. Now, sbrk the memory back. Do to the condition above, this is safe.
-            let res = unsafe { self.sbrk(-(block.size() as isize)) };
+            let res = unsafe {
+                // LAST AUDIT: 2016-08-21 (Ticki).
+
+                // Note that the end of the block is addressable, making the size as well. For this
+                // reason the first bit is unset and the cast will never wrap.
+                self.sbrk(-(block.size() as isize))
+            };
 
             // In debug mode, we want to check for WTF-worthy scenarios.
             debug_assert!(res.is_ok(), "Failed to set the program break back.");
@@ -134,7 +140,11 @@ impl BrkLock {
         // allocated block. This ensures that it is properly memory aligned to the requested value.
         // TODO: Audit the casts.
         let (alignment_block, rest) = unsafe {
+            // LAST AUDIT: 2016-08-21 (Ticki).
+
             Block::from_raw_parts(
+                // Important! The conversion is failable to avoid arithmetic overflow-based
+                // attacks.
                 self.sbrk(brk_size.try_into().unwrap()).unwrap_or_else(|()| fail::oom()),
                 brk_size,
             )
@@ -175,7 +185,11 @@ pub unsafe extern fn sbrk(size: isize) -> *mut u8 {
 
 /// Get the current program break.
 fn current_brk() -> Pointer<u8> {
-    unsafe { Pointer::new(syscalls::brk(ptr::null()) as *mut u8) }
+    unsafe {
+        // LAST AUDIT: 2016-08-21 (Ticki).
+
+        Pointer::new(syscalls::brk(ptr::null()) as *mut u8)
+    }
 }
 
 #[cfg(test)]

@@ -46,9 +46,12 @@ impl<T: 'static> Key<T> {
         // Logging.
         log!(INTERNAL, "Registering thread destructor.");
 
-        // This is safe due to sharing memory layout.
-        thread_destructor::register(&self.inner as *const T as *const u8 as *mut u8,
-                                    unsafe { mem::transmute(dtor) });
+        thread_destructor::register(&self.inner as *const T as *const u8 as *mut u8, unsafe {
+            // LAST AUDIT: 2016-08-21 (Ticki).
+
+            // This is safe due to sharing memory layout.
+            mem::transmute(dtor)
+        });
     }
 }
 
@@ -67,6 +70,12 @@ macro_rules! tls {
     (#[$($attr:meta),*] static $name:ident: $ty:ty = $val:expr;) => {
         $(#[$attr])*
         #[thread_local]
-        static $name: tls::Key<$ty> = unsafe { tls::Key::new($val) };
+        static $name: tls::Key<$ty> = unsafe {
+            // LAST AUDIT: 2016-08-21 (Ticki).
+
+            // This is secure due to being stored in a thread-local variable and thus being bounded
+            // by the current thread.
+            tls::Key::new($val)
+        };
     }
 }

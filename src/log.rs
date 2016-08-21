@@ -92,7 +92,13 @@ macro_rules! assert {
             log!(ERROR, $( $arg ),*);
 
             #[allow(unused_unsafe)]
-            unsafe { intrinsics::abort() }
+            unsafe {
+                // LAST AUDIT: 2016-08-21 (Ticki).
+
+                // Right now there is no safe interface exposed for this, but it is safe no matter
+                // what.
+                intrinsics::abort();
+            }
         }
     }}
 }

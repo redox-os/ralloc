@@ -41,7 +41,12 @@ impl<T> Pointer<T> {
     #[inline]
     pub const fn empty() -> Pointer<T> {
         Pointer {
-            ptr: unsafe { NonZero::new(0x1 as *mut T) },
+            ptr: unsafe {
+                // LAST AUDIT: 2016-08-21 (Ticki).
+
+                // 0x1 is non-zero.
+                NonZero::new(0x1 as *mut T)
+            },
             _phantom: marker::PhantomData,
         }
     }
@@ -52,7 +57,12 @@ impl<T> Pointer<T> {
     #[inline]
     pub fn cast<U>(self) -> Pointer<U> {
         Pointer {
-            ptr: unsafe { NonZero::new(*self as *mut U) },
+            ptr: unsafe {
+                // LAST AUDIT: 2016-08-21 (Ticki).
+
+                // Casting the pointer will preserve its nullable state.
+                NonZero::new(*self as *mut U)
+            },
             _phantom: marker::PhantomData,
         }
     }

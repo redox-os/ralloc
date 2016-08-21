@@ -869,6 +869,8 @@ pub trait Allocator: ops::DerefMut<Target = Bookkeeper> {
         let mut old_buf = None;
 
         unsafe {
+            // LAST AUDIT: 2016-08-21 (Ticki).
+
             // Memmove the elements to make a gap to the new block.
             ptr::copy(self.pool.get_unchecked(ind) as *const Block,
                       self.pool.get_unchecked_mut(ind + 1) as *mut Block,
@@ -896,6 +898,7 @@ pub trait Allocator: ops::DerefMut<Target = Bookkeeper> {
 
             // Update the pool byte count.
             self.total_bytes += block.size();
+
             // Mark it free and set the element.
             ptr::write(self.pool.get_unchecked_mut(ind), block.mark_free());
         }

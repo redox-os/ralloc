@@ -61,9 +61,13 @@ impl<T: Leak> Vec<T> {
 
         // Update the fields of `self`.
         self.cap = new_cap;
-        self.ptr = unsafe { Pointer::new(*Pointer::from(block) as *mut T) };
+        self.ptr = Pointer::from(block).cast();
         self.len = old.len;
         unsafe {
+            // LAST AUDIT: 2016-08-21 (Ticki).
+
+            // Due to the invariants of `Block`, this copy is safe (the pointer is valid and
+            // unaliased).
             ptr::copy_nonoverlapping(*old.ptr, *self.ptr, old.len);
         }
 
@@ -87,6 +91,8 @@ impl<T: Leak> Vec<T> {
         } else {
             // Place the element in the end of the vector.
             unsafe {
+                // LAST AUDIT: 2016-08-21 (Ticki).
+
                 // By the invariants of this type (the size is bounded by the address space), this
                 // conversion isn't overflowing.
                 ptr::write((*self.ptr).offset(self.len as isize), elem);
@@ -107,7 +113,9 @@ impl<T: Leak> Vec<T> {
             None
         } else {
             unsafe {
-                // Decrement the length.
+                // LAST AUDIT: 2016-08-21 (Ticki).
+
+                // Decrement the length. This won't underflow due to the conditional above.
                 self.len -= 1;
 
                 // We use `ptr::read` since the element is unaccessible due to the decrease in the
@@ -167,7 +175,12 @@ impl<T: Leak> Default for Vec<T> {
 /// Cast this vector to the respective block.
 impl<T: Leak> From<Vec<T>> for Block {
     fn from(from: Vec<T>) -> Block {
-        unsafe { Block::from_raw_parts(from.ptr.cast(), from.cap * mem::size_of::<T>()) }
+        unsafe {
+            // LAST AUDIT: 2016-08-21 (Ticki).
+
+            // The invariants maintains safety.
+            Block::from_raw_parts(from.ptr.cast(), from.cap * mem::size_of::<T>())
+        }
     }
 }
 
@@ -177,6 +190,9 @@ impl<T: Leak> ops::Deref for Vec<T> {
     #[inline]
     fn deref(&self) -> &[T] {
         unsafe {
+            // LAST AUDIT: 2016-08-21 (Ticki).
+
+            // The invariants maintains safety.
             slice::from_raw_parts(*self.ptr as *const T, self.len)
         }
     }
@@ -186,6 +202,9 @@ impl<T: Leak> ops::DerefMut for Vec<T> {
     #[inline]
     fn deref_mut(&mut self) -> &mut [T] {
         unsafe {
+            // LAST AUDIT: 2016-08-21 (Ticki).
+
+            // The invariants maintains safety.
             slice::from_raw_parts_mut(*self.ptr as *mut T, self.len)
         }
     }

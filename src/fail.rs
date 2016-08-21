@@ -44,6 +44,8 @@ pub fn oom() -> ! {
     log!(DEBUG, "Calling the global OOM handler.");
 
     unsafe {
+        // LAST AUDIT: 2016-08-21 (Ticki).
+
         // Transmute the atomic pointer to a function pointer and call it.
         (mem::transmute::<_, fn() -> !>(OOM_HANDLER.load(atomic::Ordering::SeqCst)))()
     }

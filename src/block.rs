@@ -49,17 +49,14 @@ impl Block {
         Block {
             size: 0,
             // This won't alias `ptr`, since the block is empty.
-            ptr: unsafe { Pointer::new(*ptr) },
+            ptr: ptr,
         }
     }
 
     /// Create an empty block representing the left edge of this block
     #[inline]
     pub fn empty_left(&self) -> Block {
-        Block {
-            size: 0,
-            ptr: unsafe { Pointer::new(*self.ptr) },
-        }
+        Block::empty(self.ptr.clone())
     }
 
     /// Create an empty block representing the right edge of this block
@@ -69,9 +66,11 @@ impl Block {
         Block {
             size: 0,
             ptr: unsafe {
+                // LAST AUDIT: 2016-08-21 (Ticki).
+
                 // By the invariants of this type (the end is addressable), this conversion isn't
                 // overflowing.
-                Pointer::new(*self.ptr).offset(self.size as isize)
+                self.ptr.clone().offset(self.size as isize)
             },
         }
     }
@@ -127,6 +126,9 @@ impl Block {
         assert!(self.size <= block.size, "Block too small.");
 
         unsafe {
+            // LAST AUDIT: 2016-08-21 (Ticki).
+
+            // From the invariants of `Block`, this copy is well-defined.
             ptr::copy_nonoverlapping(*self.ptr, *block.ptr, self.size);
         }
     }
@@ -139,6 +141,10 @@ impl Block {
             log!(INTERNAL, "Zeroing {:?}", *self);
 
             unsafe {
+                // LAST AUDIT: 2016-08-21 (Ticki).
+
+                // Since the memory of the block is inaccessible (read-wise), zeroing it is fully
+                // safe.
                 intrinsics::volatile_set_memory(*self.ptr, 0, self.size);
             }
         }
@@ -177,6 +183,8 @@ impl Block {
             Block {
                 size: self.size - pos,
                 ptr: unsafe {
+                    // LAST AUDIT: 2016-08-21 (Ticki).
+
                     // This won't overflow due to the assertion above, ensuring that it is bounded
                     // by the address space. See the `split_at_mut` source from libcore.
                     self.ptr.offset(pos as isize)
@@ -217,6 +225,8 @@ impl Block {
                 Block {
                     size: old.size - aligner,
                     ptr: unsafe {
+                        // LAST AUDIT: 2016-08-21 (Ticki).
+
                         // The aligner is bounded by the size, which itself is bounded by the
                         // address space. Therefore, this conversion cannot overflow.
                         old.ptr.offset(aligner as isize)

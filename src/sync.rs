@@ -74,6 +74,9 @@ impl<'a, T> ops::Deref for MutexGuard<'a, T> {
     #[inline]
     fn deref(&self) -> &T {
         unsafe {
+            // LAST AUDIT: 2016-08-21 (Ticki).
+
+            // Aliasing is allowed due to the lock representing mutual exclusive access.
             &*self.mutex.inner.get()
         }
     }
@@ -82,6 +85,9 @@ impl<'a, T> ops::Deref for MutexGuard<'a, T> {
 impl<'a, T> ops::DerefMut for MutexGuard<'a, T> {
     fn deref_mut(&mut self) -> &mut T {
         unsafe {
+            // LAST AUDIT: 2016-08-21 (Ticki).
+
+            // Aliasing is allowed due to the lock representing mutual exclusive access.
             &mut *self.mutex.inner.get()
         }
     }
