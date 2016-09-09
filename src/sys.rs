@@ -47,6 +47,7 @@ pub fn yield_now() {
 /// shipped with the destructor.
 // TODO: I haven't figured out a safe general solution yet. Libstd relies on devirtualization,
 // which, when missed, can make it quite expensive.
+#[cfg(feature = "tls")]
 pub fn register_thread_destructor<T>(load: *mut T, dtor: extern fn(*mut T)) -> Result<(), ()> {
     // Check if thread dtors are supported.
     if shim::thread_destructor::is_supported() {

@@ -46,3 +46,6 @@ tls = []
 unsafe_no_brk_lock = []
 unsafe_no_mutex_lock = []
 write = []
+
+[replace]
+"libc:0.2.16" = { git = "https://github.com/redox-os/liblibc.git", branch = "new_kernel" }
