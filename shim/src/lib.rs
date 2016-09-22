@@ -15,6 +15,7 @@
 extern crate syscall;
 
 pub mod config;
-pub mod thread_destructor;
 pub mod debug;
+pub mod log;
 pub mod syscalls;
+pub mod thread_destructor;

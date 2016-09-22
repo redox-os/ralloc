@@ -54,7 +54,7 @@ impl<T> Mutex<T> {
 /// A mutex guard.
 ///
 /// This acts as the lock.
-#[must_use]
+#[must_use = "Locking a mutex without using the mutex guard is a waste of cycles."]
 pub struct MutexGuard<'a, T: 'a> {
     /// The parent mutex.
     mutex: &'a Mutex<T>,
@@ -93,8 +93,8 @@ impl<'a, T> ops::DerefMut for MutexGuard<'a, T> {
     }
 }
 
-unsafe impl<T: Send> Send for Mutex<T> {}
-unsafe impl<T: Send> Sync for Mutex<T> {}
+unsafe impl<T> Send for Mutex<T> where T: Send {}
+unsafe impl<T> Sync for Mutex<T> where T: Send {}
 
 #[cfg(test)]
 mod test {

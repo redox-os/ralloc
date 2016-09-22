@@ -9,6 +9,10 @@ use prelude::*;
 
 use core::{ptr, cmp, mem, fmt};
 
+use ptr;
+
+usize_newtype!(pub Size);
+
 /// A contiguous memory block.
 ///
 /// This provides a number of guarantees,
@@ -25,10 +29,11 @@ use core::{ptr, cmp, mem, fmt};
 ///
 /// Accessing it through an immutable reference does not break these guarantees. That is, you are
 /// not able to read/mutate without acquiring a _mutable_ reference.
-#[must_use]
+#[must_use = "`Block` represents some owned memory, not using it will likely result in memory \
+              leaks."]
 pub struct Block {
     /// The size of this block, in bytes.
-    size: usize,
+    size: Size,
     /// The pointer to the start of this block.
     ptr: Pointer<u8>,
 }
@@ -36,7 +41,7 @@ pub struct Block {
 impl Block {
     /// Construct a block from its raw parts (pointer and size).
     #[inline]
-    pub unsafe fn from_raw_parts(ptr: Pointer<u8>, size: usize) -> Block {
+    pub unsafe fn from_raw_parts(ptr: Pointer<u8>, size: Size) -> Block {
         Block {
             size: size,
             ptr: ptr,
@@ -53,13 +58,13 @@ impl Block {
         }
     }
 
-    /// Create an empty block representing the left edge of this block
+    /// Create an empty block representing the left edge of this block.
     #[inline]
     pub fn empty_left(&self) -> Block {
         Block::empty(self.ptr.clone())
     }
 
-    /// Create an empty block representing the right edge of this block
+    /// Create an empty block representing the right edge of this block.
     #[inline]
     #[allow(cast_possible_wrap)]
     pub fn empty_right(&self) -> Block {
@@ -84,9 +89,7 @@ impl Block {
     /// If you merge with a zero sized block, it will succeed, even if they are not adjacent.
     #[inline]
     pub fn merge_right(&mut self, block: &mut Block) -> Result<(), ()> {
-        if block.is_empty() {
-            Ok(())
-        } else if self.left_to(block) {
+        if self.left_to(block) {
             // Since the end of `block` is bounded by the address space, adding them cannot
             // overflow.
             self.size += block.pop().size;
@@ -103,14 +106,14 @@ impl Block {
     }
 
     /// Get the size of the block.
-    pub fn size(&self) -> usize {
+    pub fn size(&self) -> Size {
         self.size
     }
 
     /// Is this block aligned to `align`?
     #[inline]
-    pub fn aligned_to(&self, align: usize) -> bool {
-        *self.ptr as usize % align == 0
+    pub fn aligned_to(&self, align: ptr::Align) -> bool {
+        self.ptr.aligned_to(align)
     }
 
     /// memcpy the block to another pointer.
@@ -161,6 +164,12 @@ impl Block {
     /// Is this block placed left to the given other block?
     #[inline]
     pub fn left_to(&self, to: &Block) -> bool {
+        // Warn about potential confusion of `self` and `to` and other similar bugs.
+        if cfg!(debug_assertions) && self >= to {
+            log!(WARNING, "{:?} is not lower than {:?}. Are you sure this `left_to()` is correctly \
+                 used?", self, to);
+        }
+
         // This won't overflow due to the end being bounded by the address space.
         self.size + *self.ptr as usize == *to.ptr as usize
     }
@@ -172,7 +181,7 @@ impl Block {
     /// Panics if `pos` is out of bound.
     #[inline]
     #[allow(cast_possible_wrap)]
-    pub fn split(self, pos: usize) -> (Block, Block) {
+    pub fn split(self, pos: Size) -> (Block, Block) {
         assert!(pos <= self.size, "Split {} out of bound (size is {})!", pos, self.size);
 
         (
@@ -198,17 +207,17 @@ impl Block {
     /// Returns an `None` holding the intact block if `align` is out of bounds.
     #[inline]
     #[allow(cast_possible_wrap)]
-    pub fn align(&mut self, align: usize) -> Option<(Block, Block)> {
-        // Logging.
+    pub fn align(&mut self, align: ptr::Align) -> Option<(Block, Block)> {
         log!(INTERNAL, "Padding {:?} to align {}", self, align);
 
-        // TODO: This functions suffers from external fragmentation. Leaving bigger segments might
+        // FIXME: This functions suffers from external fragmentation. Leaving bigger segments might
         // increase performance.
 
         // Calculate the aligner, which defines the smallest size required as precursor to align
         // the block to `align`.
-        let aligner = (align - *self.ptr as usize % align) % align;
-        //                                                 ^^^^^^^^
+        // TODO: This can be reduced.
+        let aligner = (align.into_usize() - *self.ptr as usize % align.into_usize()) % align.into_usize();
+        //                                                       ^^^^^^^^^^^^^^^^^^
         // To avoid wasting space on the case where the block is already aligned, we calculate it
         // modulo `align`.
 
@@ -219,7 +228,7 @@ impl Block {
 
             Some((
                 Block {
-                    size: aligner,
+                    size: Size(aligner),
                     ptr: old.ptr.clone(),
                 },
                 Block {
@@ -234,7 +243,6 @@ impl Block {
                 }
             ))
         } else {
-            // Logging.
             log!(INTERNAL, "Unable to align block.");
 
             None
@@ -248,7 +256,7 @@ impl Block {
     #[inline]
     pub fn mark_free(self) -> Block {
         #[cfg(feature = "debugger")]
-        ::shim::debug::mark_free(*self.ptr as *const u8, self.size);
+        ::shim::debug::mark_free(*self.ptr, self.size);
 
         self
     }
@@ -259,7 +267,7 @@ impl Block {
     #[inline]
     pub fn mark_uninitialized(self) -> Block {
         #[cfg(feature = "debugger")]
-        ::shim::debug::mark_unintialized(*self.ptr as *const u8, self.size);
+        ::shim::debug::mark_unintialized(*self.ptr, self.size);
 
         self
     }
@@ -310,7 +318,7 @@ mod test {
     fn test_array() {
         let arr = b"Lorem ipsum dolor sit amet";
         let block = unsafe {
-            Block::from_raw_parts(Pointer::new(arr.as_ptr() as *mut u8), arr.len())
+            Block::from_raw_parts(Pointer::new(arr.as_ptr()), arr.len())
         };
 
         // Test split.
@@ -330,7 +338,7 @@ mod test {
     fn test_merge() {
         let arr = b"Lorem ipsum dolor sit amet";
         let block = unsafe {
-            Block::from_raw_parts(Pointer::new(arr.as_ptr() as *mut u8), arr.len())
+            Block::from_raw_parts(Pointer::new(arr.as_ptr()), arr.len())
         };
 
         let (mut lorem, mut rest) = block.split(5);
@@ -346,7 +354,7 @@ mod test {
     fn test_oob() {
         let arr = b"lorem";
         let block = unsafe {
-            Block::from_raw_parts(Pointer::new(arr.as_ptr() as *mut u8), arr.len())
+            Block::from_raw_parts(Pointer::new(arr.as_ptr()), arr.len())
         };
 
         // Test OOB.
@@ -358,7 +366,7 @@ mod test {
         let mut arr = [0u8, 2, 0, 0, 255, 255];
 
         let block = unsafe {
-            Block::from_raw_parts(Pointer::new(&mut arr[0] as *mut u8), 6)
+            Block::from_raw_parts(Pointer::new(&mut arr[0]), 6)
         };
 
         let (a, mut b) = block.split(2);
@@ -371,12 +379,12 @@ mod test {
     fn test_empty_lr() {
         let arr = b"Lorem ipsum dolor sit amet";
         let block = unsafe {
-            Block::from_raw_parts(Pointer::new(arr.as_ptr() as *mut u8), arr.len())
+            Block::from_raw_parts(Pointer::new(arr.as_ptr()), arr.len())
         };
 
         assert!(block.empty_left().is_empty());
         assert!(block.empty_right().is_empty());
-        assert_eq!(*Pointer::from(block.empty_left()) as *const u8, arr.as_ptr());
+        assert_eq!(*Pointer::from(block.empty_left()), arr.as_ptr());
         assert_eq!(block.empty_right(), block.split(arr.len()).1);
     }
 }

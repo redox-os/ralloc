@@ -13,4 +13,5 @@ use prelude::*;
 pub unsafe trait Leak {}
 
 unsafe impl Leak for Block {}
-unsafe impl<T: Copy> Leak for T {}
+unsafe impl<T> Leak for Jar<T> {}
+unsafe impl<T> Leak for T where T: Copy {}

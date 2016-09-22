@@ -16,7 +16,7 @@ pub mod arch {
 
     /// Register a thread destructor.
     // TODO: Due to rust-lang/rust#18804, make sure this is not generic!
-    pub fn register(t: *mut u8, dtor: unsafe extern fn(*mut u8)) {
+    pub unsafe fn register(t: *mut u8, dtor: unsafe extern fn(*mut u8)) {
         use core::mem;
 
         /// A thread destructor.
@@ -40,7 +40,7 @@ pub mod arch {
     }
 
     /// Register a thread destructor.
-    pub fn register(t: *mut u8, dtor: unsafe extern fn(*mut u8)) {
+    pub unsafe fn register(t: *mut u8, dtor: unsafe extern fn(*mut u8)) {
         _tlv_atexit(dtor, t);
     }
 }

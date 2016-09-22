@@ -9,7 +9,7 @@ use core::convert::TryInto;
 
 use shim::{syscalls, config};
 
-use {sync, fail};
+use {sync, fail, block, ptr};
 
 /// The BRK mutex.
 ///
@@ -46,7 +46,7 @@ impl BrkLock {
         let expected_brk = self.current_brk().offset(size);
 
         // Break it to me, babe!
-        let old_brk = Pointer::new(syscalls::brk(*expected_brk as *const u8) as *mut u8);
+        let old_brk = Pointer::new(syscalls::brk(expected_brk) as *mut u8);
 
         /// AAAARGH WAY TOO MUCH LOGGING
         ///
@@ -75,7 +75,6 @@ impl BrkLock {
     pub fn release(&mut self, block: Block) -> Result<(), Block> {
         // Check if we are actually next to the program break.
         if self.current_brk() == Pointer::from(block.empty_right()) {
-            // Logging...
             log!(DEBUG, "Releasing {:?} to the OS.", block);
 
             // We are. Now, sbrk the memory back. Do to the condition above, this is safe.
@@ -92,7 +91,6 @@ impl BrkLock {
 
             Ok(())
         } else {
-            // Logging...
             log!(DEBUG, "Unable to release {:?} to the OS.", block);
 
             // Return the block back.
@@ -132,7 +130,7 @@ impl BrkLock {
     ///
     /// This method calls the OOM handler if it is unable to acquire the needed space.
     // TODO: This method is possibly unsafe.
-    pub fn canonical_brk(&mut self, size: usize, align: usize) -> (Block, Block, Block) {
+    pub fn canonical_brk(&mut self, size: block::Size, align: ptr::Align) -> (Block, Block, Block) {
         // Calculate the canonical size (extra space is allocated to limit the number of system calls).
         let brk_size = size + config::extra_brk(size) + align;
 
@@ -211,6 +209,18 @@ mod test {
             let brk2 = lock().sbrk(100).unwrap();
 
             assert!(*brk1 < *brk2);
+        }
+    }
+
+    #[test]
+    fn test_brk_right_segment_change() {
+        unsafe {
+            let brk1 = lock().sbrk(5).unwrap();
+            let brk2 = lock().sbrk(100).unwrap();
+
+            assert_eq!(brk1.offset(5), brk2);
+            assert_eq!(brk2.offset(100), current_brk());
+            assert_eq!(lock().sbrk(0), current_brk());
         }
     }
 }

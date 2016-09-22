@@ -4,7 +4,7 @@
 
 use prelude::*;
 
-use core::{mem, ops};
+use core::mem;
 
 use {brk, sync};
 use bookkeeper::{self, Bookkeeper, Allocator};
@@ -63,6 +63,7 @@ macro_rules! get_allocator {
                     log!(WARNING, "Accessing the allocator after deinitialization of the local allocator.");
 
                     // Lock the global allocator.
+                    log!(DEBUG, "Locking global allocator.");
                     let mut guard = GLOBAL_ALLOCATOR.lock();
 
                     // Call the block in question.
@@ -76,6 +77,7 @@ macro_rules! get_allocator {
         #[cfg(not(feature = "tls"))]
         {
             // Lock the global allocator.
+            log!(DEBUG, "Locking global allocator.");
             let mut guard = GLOBAL_ALLOCATOR.lock();
 
             // Call the block in question.
@@ -83,27 +85,6 @@ macro_rules! get_allocator {
             $b
         }
     }}
-}
-
-/// Derives `Deref` and `DerefMut` to the `inner` field.
-///
-/// This requires importing `core::ops`.
-macro_rules! derive_deref {
-    ($imp:ty, $target:ty) => {
-        impl ops::Deref for $imp {
-            type Target = $target;
-
-            fn deref(&self) -> &$target {
-                &self.inner
-            }
-        }
-
-        impl ops::DerefMut for $imp {
-            fn deref_mut(&mut self) -> &mut $target {
-                &mut self.inner
-            }
-        }
-    };
 }
 
 /// Global SBRK-based allocator.
@@ -119,7 +100,6 @@ struct GlobalAllocator {
 impl GlobalAllocator {
     /// Initialize the global allocator.
     fn init() -> GlobalAllocator {
-        /// Logging...
         log!(NOTE, "Initializing the global allocator.");
 
         // The initial acquired segment.
@@ -169,7 +149,6 @@ impl Allocator for GlobalAllocator {
 
             // Check if the memtrim is worth it.
             if block.size() >= config::OS_MEMTRIM_WORTHY {
-                /// Logging...
                 log!(NOTE, "Memtrimming the global allocator.");
 
                 // Release the block to the OS.
@@ -183,7 +162,6 @@ impl Allocator for GlobalAllocator {
                 // segments being as long as possible. For that reason, repeating to push and
                 // release would fail.
             } else {
-                /// Logging...
                 log!(WARNING, "Memtrimming for the global allocator failed.");
 
                 // Push the block back.
@@ -203,16 +181,15 @@ pub struct LocalAllocator {
     inner: Bookkeeper,
 }
 
+#[cfg(feature = "tls")]
 impl LocalAllocator {
     /// Initialize the local allocator.
-    #[cfg(feature = "tls")]
     fn init() -> LocalAllocator {
         /// The destructor of the local allocator.
         ///
         /// This will simply free everything to the global allocator.
         extern fn dtor(alloc: &ThreadLocalAllocator) {
-            /// Logging...
-            log!(NOTE, "Deinitializing and freeing the local allocator.");
+            log!(NOTE, "Deinitializing and freeing the local allocator to the global allocator.");
 
             // This is important! The thread destructors guarantee no other, and thus one could use the
             // allocator _after_ this destructor have been finished. In fact, this is a real problem,
@@ -232,7 +209,6 @@ impl LocalAllocator {
             alloc.into_inner().inner.for_each(move |block| global_alloc.free(block));
         }
 
-        /// Logging...
         log!(NOTE, "Initializing the local allocator.");
 
         // The initial acquired segment.

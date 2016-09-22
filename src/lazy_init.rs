@@ -39,7 +39,9 @@ impl<F: FnMut() -> T, T> LazyInit<F, T> {
         let inner;
 
         match self.state {
+            // The lazy initializer has run, and the inner value is initialized.
             State::Initialized(ref mut x) => return x,
+            // It is uninitialized, run the initializer.
             State::Uninitialized(ref mut f) => inner = f(),
         }
 
@@ -66,6 +68,8 @@ impl<F: FnMut() -> T, T> LazyInit<F, T> {
     }
 }
 
+
+
 #[cfg(test)]
 mod test {
     use super::*;
@@ -79,6 +83,14 @@ mod test {
         assert_eq!(*lazy.get(), 300);
         *lazy.get() = 400;
         assert_eq!(*lazy.get(), 400);
+    }
+
+    #[test]
+    fn test_into_inner() {
+        let mut lazy = LazyInit::new(|| 300);
+
+        *lazy.get() = 442;
+        assert_eq!(lazy.into_inner(), 442);
     }
 
     #[test]

@@ -25,12 +25,6 @@ pub const LOCAL_MEMTRIM_LIMIT: usize = 16384;
 /// The local memtrimming will continue until the allocator has less memory (in bytes, of course)
 /// than this value.
 pub const LOCAL_MEMTRIM_STOP: usize = 1024;
-/// The log target's file descriptor.
-pub(crate) const LOG_TARGET: i32 = 2;
-/// The minimum log level.
-pub(crate) const MIN_LOG_LEVEL: u8 = 0;
-/// The message buffer size (in bytes).
-pub(crate) const LOG_BUFFER_SIZE: usize = 128;
 
 /// The default OOM handler.
 #[cold]
@@ -40,18 +34,6 @@ pub fn default_oom_handler() -> ! {
 
     unsafe {
         intrinsics::abort();
-    }
-}
-
-/// Write to the log.
-///
-/// This points to stderr, but could be changed arbitrarily.
-pub fn log(lv: u8, kind: &str, args: fmt::Arguments, file: &str, line: u32) {
-    /// The minimum log level.
-    const MIN_LOG_LEVEL: u8 = 0;
-
-    if lv >= MIN_LOG_LEVEL {
-        unsafe { syscall!(WRITE, 2, s.as_ptr(), s.len()) }
     }
 }
 

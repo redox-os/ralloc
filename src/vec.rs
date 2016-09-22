@@ -4,7 +4,8 @@ use prelude::*;
 
 use core::{slice, ops, mem, ptr};
 
-use leak::Leak;
+// Derive the length newtype.
+usize_newtype!(pub VecElem);
 
 /// A low-level vector primitive.
 ///
@@ -16,11 +17,11 @@ pub struct Vec<T: Leak> {
     /// The capacity of the buffer.
     ///
     /// This demonstrates the lengths before reallocation is necessary.
-    cap: usize,
+    cap: VecElem,
     /// The length of the vector.
     ///
     /// This is the number of elements from the start, that is initialized, and can be read safely.
-    len: usize,
+    len: VecElem,
 }
 
 impl<T: Leak> Vec<T> {
@@ -31,7 +32,7 @@ impl<T: Leak> Vec<T> {
     /// This is unsafe, since it won't initialize the buffer in any way, possibly breaking type
     /// safety, memory safety, and so on. Thus, care must be taken upon usage.
     #[inline]
-    pub unsafe fn from_raw_parts(block: Block, len: usize) -> Vec<T> {
+    pub unsafe fn from_raw_parts(block: Block, len: VecElem) -> Vec<T> {
         Vec {
             len: len,
             cap: block.size() / mem::size_of::<T>(),
@@ -76,7 +77,7 @@ impl<T: Leak> Vec<T> {
 
     /// Get the capacity of this vector.
     #[inline]
-    pub fn capacity(&self) -> usize {
+    pub fn capacity(&self) -> VecElem {
         self.cap
     }
 
@@ -132,7 +133,7 @@ impl<T: Leak> Vec<T> {
     /// # Panics
     ///
     /// Panics on out-of-bound.
-    pub fn truncate(&mut self, len: usize) {
+    pub fn truncate(&mut self, len: VecElem) {
         // Bound check.
         assert!(len <= self.len, "Out of bound.");
 
@@ -193,7 +194,7 @@ impl<T: Leak> ops::Deref for Vec<T> {
             // LAST AUDIT: 2016-08-21 (Ticki).
 
             // The invariants maintains safety.
-            slice::from_raw_parts(*self.ptr as *const T, self.len)
+            slice::from_raw_parts(self.ptr, self.len)
         }
     }
 }
@@ -205,7 +206,7 @@ impl<T: Leak> ops::DerefMut for Vec<T> {
             // LAST AUDIT: 2016-08-21 (Ticki).
 
             // The invariants maintains safety.
-            slice::from_raw_parts_mut(*self.ptr as *mut T, self.len)
+            slice::from_raw_parts_mut(self.ptr, self.len)
         }
     }
 }
@@ -219,7 +220,7 @@ mod test {
         let mut buffer = [b'a'; 32];
         let mut vec = unsafe {
             Vec::from_raw_parts(
-                Block::from_raw_parts(Pointer::new(&mut buffer[0] as *mut u8), 32),
+                Block::from_raw_parts(Pointer::new(&mut buffer[0]), 32),
                 16
             )
         };
@@ -234,7 +235,7 @@ mod test {
 
         unsafe {
             assert_eq!(vec.refill(
-                Block::from_raw_parts(Pointer::new(&mut buffer[0] as *mut u8), 32)).size(),
+                Block::from_raw_parts(Pointer::new(&mut buffer[0]), 32)).size(),
                 32
             );
         }

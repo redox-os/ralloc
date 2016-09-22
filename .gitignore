@@ -1,2 +1,8 @@
-target
+*.aux
+*.bin
+*.log
+*.out
+*.pdf
+*.toc
 Cargo.lock
+target

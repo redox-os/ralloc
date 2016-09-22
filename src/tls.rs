@@ -2,6 +2,8 @@
 //!
 //! This module provides lightweight abstractions for TLS similar to the ones provided by libstd.
 
+use prelude::*;
+
 use core::{marker, mem};
 
 use shim::thread_destructor;
@@ -18,7 +20,7 @@ impl<T: 'static> Key<T> {
     /// # Safety
     ///
     /// This is invariant-breaking (assumes thread-safety) and thus unsafe.
-    pub const unsafe fn new(inner: T) -> Key<T> {
+    pub const unsafe fn new(inner: T) -> Key<T> where T: Leak {
         Key { inner: inner }
     }
 
@@ -31,7 +33,6 @@ impl<T: 'static> Key<T> {
     #[inline]
     pub fn with<F, R>(&'static self, f: F) -> R
         where F: FnOnce(&T) -> R {
-        // Logging.
         log!(INTERNAL, "Accessing TLS variable.");
 
         f(&self.inner)
@@ -43,10 +44,9 @@ impl<T: 'static> Key<T> {
     // TODO: Make this automatic on `Drop`.
     #[inline]
     pub fn register_thread_destructor(&'static self, dtor: extern fn(&T)) {
-        // Logging.
         log!(INTERNAL, "Registering thread destructor.");
 
-        thread_destructor::register(&self.inner as *const T as *const u8 as *mut u8, unsafe {
+        thread_destructor::register(&self.inner as *mut u8, unsafe {
             // LAST AUDIT: 2016-08-21 (Ticki).
 
             // This is safe due to sharing memory layout.
@@ -66,7 +66,9 @@ unsafe impl<T> marker::Sync for Key<T> {}
 /// For this reason, in contrast to other `static`s in Rust, this need not thread-safety, which is
 /// what this macro "fixes".
 macro_rules! tls {
-    (static $name:ident: $ty:ty = $val:expr;) => { tls! { #[] static $name: $ty = $val; } };
+    (static $name:ident: $ty:ty = $val:expr;) => {
+        tls! { #[] static $name: $ty = $val; }
+    };
     (#[$($attr:meta),*] static $name:ident: $ty:ty = $val:expr;) => {
         $(#[$attr])*
         #[thread_local]
@@ -77,5 +79,30 @@ macro_rules! tls {
             // by the current thread.
             tls::Key::new($val)
         };
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    use cell::MoveCell;
+
+    #[test]
+    fn test_tls() {
+        tls!(static HELLO: &'static str = "hello");
+
+        HELLO.with(|x| assert_eq!(x, "hello"));
+    }
+
+    #[test]
+    fn test_mutability() {
+        tls!(static HELLO: MoveCell<u32> = MoveCell::new(3));
+
+        HELLO.with(|x| assert_eq!(x.replace(4), 3));
+        HELLO.with(|x| assert_eq!(x.replace(5), 4));
+        HELLO.with(|x| assert_eq!(x.replace(10), 5));
+        HELLO.with(|x| assert_eq!(x.replace(0), 10));
+        HELLO.with(|x| assert_eq!(x.replace(0), 0));
     }
 }

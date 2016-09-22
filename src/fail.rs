@@ -56,7 +56,6 @@ pub fn oom() -> ! {
 /// This is called when the process is out-of-memory.
 #[inline]
 pub fn set_oom_handler(handler: fn() -> !) {
-    // Logging...
     log!(NOTE, "Setting the global OOM handler.");
 
     OOM_HANDLER.store(handler as *mut (), atomic::Ordering::SeqCst);
@@ -70,7 +69,6 @@ pub fn set_oom_handler(handler: fn() -> !) {
 #[inline]
 #[cfg(feature = "tls")]
 pub fn set_thread_oom_handler(handler: fn() -> !) {
-    // Logging...
     log!(NOTE, "Setting the thread OOM handler.");
 
     THREAD_OOM_HANDLER.with(|thread_oom| {

@@ -3,6 +3,8 @@
 use core::cell::UnsafeCell;
 use core::mem;
 
+use take::take;
+
 /// A move cell.
 ///
 /// This allows you to take ownership and replace the internal data with a new value. The
@@ -28,10 +30,24 @@ impl<T> MoveCell<T> {
         mem::replace(unsafe {
             // LAST AUDIT: 2016-08-21 (Ticki).
 
-            // This is safe due to never aliasing the value, but simply transfering ownership to
+            // This is safe due to never aliasing the value, but simply transferring ownership to
             // the caller.
             &mut *self.inner.get()
         }, new)
+    }
+
+    /// Get a reference to the inner value.
+    ///
+    /// Safety is enforced statically due to the guarantee of mutual exclusion in mutable
+    /// references.
+    pub fn get(&mut self) -> &mut T {
+        mem::replace(unsafe {
+            // LAST AUDIT: 2016-09-01 (Ticki).
+
+            // This is safe due to the `&mut self`, enforcing the guarantee of uniqueness. This
+            // will thus not alias it for the lifetime of that reference.
+            &mut *self.inner.get()
+        }
     }
 }
 
@@ -40,9 +56,18 @@ mod test {
     use super::*;
 
     #[test]
-    fn test_cell() {
+    fn test_replace() {
         let cell = MoveCell::new(200);
         assert_eq!(cell.replace(300), 200);
         assert_eq!(cell.replace(4), 300);
+    }
+
+    #[test]
+    fn test_get() {
+        let mut cell = MoveCell::new(200);
+        assert_eq!(*cell.get(), 200);
+
+        *cell.get() = 300;
+        assert_eq!(*cell.get(), 300);
     }
 }

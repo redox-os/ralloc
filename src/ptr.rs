@@ -1,7 +1,9 @@
 //! Pointer wrappers.
 
+use prelude::*;
+
 use core::nonzero::NonZero;
-use core::{ops, marker};
+use core::{ops, marker, mem};
 
 /// A pointer wrapper type.
 ///
@@ -54,6 +56,11 @@ impl<T> Pointer<T> {
     /// Cast this pointer into a pointer to another type.
     ///
     /// This will simply transmute the pointer, leaving the actual data unmodified.
+    ///
+    /// # Why not `From`?
+    ///
+    /// `T` implements `From<T>`, making it (currently) impossible to implement this type of cast
+    /// with `From`. [RFC #1658](https://github.com/rust-lang/rfcs/pull/1658) fixes this.
     #[inline]
     pub fn cast<U>(self) -> Pointer<U> {
         Pointer {
@@ -78,6 +85,12 @@ impl<T> Pointer<T> {
     pub unsafe fn offset(self, diff: isize) -> Pointer<T> {
         Pointer::new(self.ptr.offset(diff))
     }
+
+    /// Is this pointer aligned to `align`?
+    #[inline]
+    pub fn aligned_to(&self, align: usize) -> bool {
+        *self.ptr as usize % align == 0
+    }
 }
 
 impl<T> Default for Pointer<T> {
@@ -98,6 +111,78 @@ impl<T> ops::Deref for Pointer<T> {
     }
 }
 
+/// A safe, owning pointer (container).
+///
+/// The name is derives libstd's `Box`, which is centered around heap management, and will free the
+/// inner memory on drop. This limitation somewhat limits the scope, so we use a primitive where
+/// freeing and allocating the inner memory is managed by the user.
+#[must_use = "`Jar` does not handle the destructor automatically, please free it into an arena to \
+              avoid memory leaks."]
+pub struct Jar<T: Leak> {
+    /// The inner pointer.
+    ///
+    /// This has four guarantees:
+    ///
+    /// 1. It is valid and initialized.
+    /// 2. The lifetime is tied to the ownership of the box (i.e. it is valid until manually
+    ///    deallocated).
+    /// 3. It is aligned to the alignment of `T`.
+    /// 4. It is non-aliased.
+    ptr: Pointer<T>,
+}
+
+impl<T: Leak> Jar<T> {
+    /// Create a jar from a raw pointer.
+    ///
+    /// # Safety
+    ///
+    /// Make sure the pointer is valid, initialized, non-aliased, and aligned. If any of these
+    /// invariants are broken, unsafety occurs.
+    #[inline]
+    pub unsafe fn from_raw(ptr: Pointer<T>) -> Jar<T> {
+        debug_assert!(ptr.aligned_to(mem::align_of::<T>()), "`ptr` is unaligned to `T`.");
+
+        Jar { ptr: ptr }
+    }
+}
+
+impl<T: Leak> ops::Deref for Jar<T> {
+    type Target = T;
+
+    #[inline]
+    fn deref(&self) -> &T {
+        unsafe {
+            // LAST AUDIT: 2016-08-24 (Ticki).
+
+            &*self.ptr
+        }
+    }
+}
+
+impl<T: Leak> ops::DerefMut for Jar<T> {
+    #[inline]
+    fn deref_mut(&self) -> &mut T {
+        unsafe {
+            // LAST AUDIT: 2016-08-24 (Ticki).
+
+            &mut *self.ptr
+        }
+    }
+}
+
+impl<T: Leak> From<Jar<T>> for Pointer<T> {
+    fn from(jar: Jar<T>) -> Pointer<T> {
+        jar.ptr
+    }
+}
+
+#[cfg(debug_assertions)]
+impl<T: Leak> Drop for Jar<T> {
+    fn drop(&mut self) {
+        panic!("Leaking a `Jar`.");
+    }
+}
+
 #[cfg(test)]
 mod test {
     use super::*;
@@ -107,7 +192,7 @@ mod test {
         let mut x = [b'a', b'b'];
 
         unsafe {
-            let ptr = Pointer::new(&mut x[0] as *mut u8);
+            let ptr = Pointer::new(&mut x[0]);
             assert_eq!(**ptr, b'a');
             assert_eq!(**ptr.clone().cast::<[u8; 1]>(), [b'a']);
             assert_eq!(**ptr.offset(1), b'b');
@@ -116,7 +201,7 @@ mod test {
         let mut y = ['a', 'b'];
 
         unsafe {
-            let ptr = Pointer::new(&mut y[0] as *mut char);
+            let ptr = Pointer::new(&mut y[0]);
             assert_eq!(**ptr.clone().cast::<[char; 1]>(), ['a']);
             assert_eq!(**ptr.offset(1), 'b');
         }

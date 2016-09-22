@@ -1,0 +1,422 @@
+\documentclass[11pt]{article}
+\usepackage[T1]{fontenc}
+\usepackage{amsmath, amsfonts, amssymb, amsthm, url, algorithmicx,
+    algpseudocode, lmodern, color, graphicx}
+
+\providecommand{\floor}[1]{\left \lfloor #1 \right \rfloor }
+\providecommand{\NOTE}[1]{
+    \begin{center}
+        \fbox{\parbox{\textwidth}{\textbf{\textit{#1}}}}
+    \end{center}
+}
+\newcommand{\emod}{\ \rm mod \ }
+\newcommand{\ralloc}{\emph{ralloc} }
+
+\title{Ralloc -- An Efficient One-Fits-All General Memory Allocator}
+\author{Ticki\thanks{Thanks to Thomas Levy for helping with the implementation of \ralloc.}}
+\date{\today}
+
+\begin{document}
+    %%% DISCLAIMER %%%
+
+    \begin{titlepage}
+        \centering \huge\bfseries The following document is an incomplete draft.
+    \end{titlepage}
+
+    %%% START OF DOCUMENT %%%
+
+    \maketitle
+
+    \begin{abstract}
+        We present \ralloc, a novel memory allocation algorithm. In contrary to
+        many other memory allocator which are based on queues of similarly
+        sized blocks. \ralloc is built on a data structure, holding blocks of
+        arbitrarily sized, eliminating internal fragmentation, while preserving
+        a high performance. Furthermore, we show how this can be thread cached
+        to enable high performance under massive multi-threading.
+    \end{abstract}
+
+    \section{Introduction}
+    Memory allocators are a core component in modern software. The heap is
+    crucial to be able to store dynamically sized objects. Naturally, that
+    implies the need for high performance.
+
+    Unfortunately, modern memory allocators tend to be complex simply to
+    achieve a good performance. Complexity has its downside, from
+    maintainability to security. The core algorithm of \ralloc is relatively
+    simple and a basic implementation requires only 1000 CLOC.
+
+    This project was originally born out of the need of a general-purpose
+    userspace memory allocator for Redox -- The Rust
+    Operating-System\cite{redoxweb}, an OS in which all the core primitives are
+    written in the Rust programming language\cite{rustweb}.  This programming
+    language utilizes extensive static analysis methods which we use throughout
+    our implementation.
+
+    The primary concern of a good allocator is the trade-off between memory
+    usage and performance. \ralloc happens to perform well per memory usage,
+    and demonstrably too in performance.
+
+    \
+
+    The approach \ralloc takes is radically different from popular memory
+    allocators such as slab\cite{bonwick94}, slob\cite{mackall05}, and buddy
+    allocation\cite{knowlton65}. In particularly, we present a data structure
+    which keeps track of longest possible continuous free segment. We
+    represents this efficiently in a tree-like structure allowing us to query
+    blocks of satisfying some condition
+
+    %%% CORE %%%
+
+    \section{Blocks}
+    `Blocks' are the core primitive of \ralloc. Strictly speaking they're just
+    fat pointers\footnote{i.e. a pointer equipped with a size.} with some
+    additional invariants (disjointness and validity), which are maintained
+    through the affine type system of Rust.
+
+    Blocks represents some segment of memory and has certain operations which
+    preserves the invariants spaecified above.
+
+    \begin{description}
+        \item [split(block, position)] Split the block at some position.
+        \item [merge(block\textsubscript{1}, block\textsubscript{2})] Merge two
+            blocks.
+        \item [size(block)] Get the size of a block.
+        \item [align(align, block)] Split the block to align to some specified
+            alignment.
+    \end{description}
+
+    \subsection{Memory alignment}
+    Especially the last one is of interest. All alignment padding functions
+    satisfy
+
+    $$
+        \mathtt{aligner}(b) \equiv -b \pmod A
+    $$
+
+    The simplest one is
+
+    $$
+        \mathtt{aligner}(b) = -b \emod A
+    $$
+
+    Since $ \mathtt{aligner}(b) < A $, it tends to leave small, unusable blocks
+    back, which increases external fragmentation.
+
+    For this reason, we use a slightly more complex algorithm:
+
+    $$
+        \mathtt{aligner}(b) = \begin{cases}
+            b & \mbox{if } b|A \\
+            \floor{\frac{\mathtt{size}(b)}{2}} - (\floor{\frac{\mathtt{size}(b)}{2}} \emod A) & \mbox{if } \mathtt{size}(b) \geq 2A \\
+            -b \emod A  & \mbox{else}
+        \end{cases}
+    $$
+
+    By observation, this tends to reduce external fragmentation by an order of
+    magnitude.
+
+    \section{Memory bookkeeping}
+    \NOTE{This section was revided in multiple turns and is thus sketchy. Rewrite pending.}
+    In contrary to other interval data structure, we are not concerned with
+    overlaps, but rather querying blocks of some size. \ralloc is based on a
+    data structure in which every block is maximized such that it marks the
+    longest possible continuous segment, in other words we merge adjacent
+    blocks.
+
+    A list of blocks is stored in a data structure that resembles Skip Lists as
+    first described in \cite{pugh89} with $ p = {^1} / {_2} $.
+
+    \subsection{Efficiently querying blocks of some size or more}
+    Linear search through the list for a fitting block is rather slow,
+    especially in the case of high fragmentation. To deal with this problem, we
+    track the biggest skipped block. We call this block ``the fat block of a
+    shortcut''.
+
+    To update this value, you merely have to recurse over the levels. Note that
+    the average skip will have $ p^{-1} = 2 $ children\footnote{We use the term
+    "child" due to the analogy to binary trees.}.
+
+    \subsection{Insertion}
+    To preserve the invariant that every block is ``as long as possible'', i.e.
+    is never adjacent to neighbouring blocks, we need to handle the case of
+    adjacent insertion.
+
+    Let $ b $ be the block in question, then
+
+    \begin{description}
+        \item [Double adjacent] If $ b $ has adjacent blocks $ (a, c) \in L $.
+            Then remove $ c $ and set $$ a \gets \mathtt{merge}(a, b, c). $$
+        \item [Left adjacent] Else if $ a \in L $ is left adjacent to $ b $, then
+            set $$ a \gets \mathtt{merge}(a, b). $$
+        \item [Right adjacent] Else if $ c \in L $ is right adjacent to $ b $, then
+            set $$ c \gets \mathtt{merge}(b, c). $$
+        \item [No adjacent] Continue conventional Skip List insertion.
+    \end{description}
+
+    A simple trick can improve performance by avoiding to backtrack and update
+    the fat blocks in certain cases. When the pointer is overshot, set
+
+    $$
+        f \gets \max(f, \rm{size}(b))
+    $$
+
+    where $ f $ is size of the biggest skipped node, and $ b $ is the block
+    we're inserting. Assume that merging was not possible, in that case we
+    clear don't need backtracking.
+
+    Consider the configuration,
+
+    \begin{figure}
+        \caption{An example configuration.}
+
+        \NOTE{This diagram is totally useless right now. Improve it.}
+        \begin{center}
+            \scalebox{1.5}{
+                $ x \xrightarrow{a \xrightarrow{b \xrightarrow{c \longrightarrow d} e} f \xrightarrow{g \xrightarrow{h} i} j} y $
+            }
+        \end{center}
+    \end{figure}
+
+    % TODO: Use algorithmic to specify the algorithm.
+
+    \subsection{Cache efficiency}
+    Cache efficiency is a major problem regarding performance in pointer-based
+    structures. In the case of trees and linked list where each node contains a
+    pointer to its children or successor, cache misses can damage performance
+    severely.
+
+    To avoid this, we use a SLOB arena, which is a block we allocate and break
+    down to a linked list. This ensures that the nodes are scattered across few
+    cache lines.
+
+    \subsection{Metacircular allocation}
+    The structure maintains its own buffer. Despite it leading to complication,
+    it turns out to be faster than simply allocating it through the source
+    allocator (which we will explain in next section).
+
+    The main complication there is to this approach is the fact that replacing
+    the internal buffer actually needs allocation and thus results in unbounded
+    recursion. To solve this we maintain the arena to hold $ n $ more blocks
+    than needed whenever reallocation is inactive ($ n $ is implementation
+    defined).
+
+    Whenever reallocation is triggered (i.e. when the invariant is broken), a
+    flag is set, which disables the maintenance of said invariant; after the
+    reallocation is over we reset the flag.
+
+    \section{Avoiding locks}
+    Locking a global locks can hurt performance of an allocator severely.
+    \cite{manghwani05} analyze two different thread-caching methods.
+    Unfortunately, none of them are suited for an arbitrary-size allocator, so
+    we modify LLAlloc's approach.
+
+    \ralloc's ``source allocator'' is generic and that is exploited for thread
+    caching. In particular, we associate a local allocator with each thread.
+    All \ralloc bookkeeping is done in this allocator.
+
+    When the first \ralloc call of a thread is made, the allocator is
+    initialized and fueled by memory requested from the global allocator
+    (shared across threads and hidden behind a lock). Then a thread destructor
+    is said: when the thread exits the memory of the local allocator is freed
+    to the global allocator.
+
+    Whenever the local allocator is unable to serve the requested memory, the
+    global allocator is locked and used as source allocator.
+
+    \subsection{Local-to-global memory trimming}
+
+    Two new problems arises when introducing this form of thread caching:
+
+    \begin{enumerate}
+        \item There is increased external fragmentation in the case of
+            cross-thread frees, due to one thread getting the allocated buffer
+            and another getting the adjacent blocks.
+        \item If one thread allocates a large buffers, and then later frees it,
+            it ends up keeping inaccessible memory, which could be used in
+            other threads.
+    \end{enumerate}
+
+    To counter these problems, we implement memory trimming for the local to
+    the global allocator. What this essentially means is that the memory
+    trimming routine, which will free blocks to the global allocator until some
+    condition is met, is triggered when the allocator hits some memory limit or
+    some fragmentation limit.
+
+    We define a local allocator to have ``high fragmentation''
+    whenever\footnote{This is a rather simplistic measure, and will be improved
+        in the future.}
+
+    $$
+        t < cb
+    $$
+
+    with $ t $ being the total number of bytes contained in the allocator and $
+    b $ being the number of blocks.
+
+    When this condition is met or $ t > l $ for some constant $ l $, we free
+    local blocks until $ t < s $ for some constant $ s $.
+
+    \section{OS memory trimming}
+    For long running processes, memory peaks can be problematic if it is never
+    returned to the operating-system.
+
+    To avoid the case where the maximal memory usage is retained, we trim the
+    global allocator similarly to how we trim the local allocator, with the
+    exception of not measuring fragmentation.
+
+    When OS memory trimming is triggered, we go pop the last block and, if it
+    is big enough to be worthy to memory trim, we free it to the system. Since
+    blocks in the memory bookkeeper represent longest possible continuous
+    segments, we can at most memory trim one block.
+
+    \section{Canonicalization}
+    Both in cases of system source allocation (which we use BRK for) and global
+    source allocation, we are interested in reserving more than actually needed
+    to avoid the overhead of repeated calls.
+
+    Every request to the source allocator will be canonicalized by
+
+    $$
+        f_s(x) = x + \max(k_1, \min(k_2 x, k_3))
+    $$
+
+    To explain our reasoning, we essentially set a minimum extra space ($ k_1
+    $), and then define the excessive space as a multiple ($ k_2 $) of the
+    requested space bounded by some maximum extra space ($ k_3 $).
+
+    BRKs are especially expensive (they can even trigger remapping of the
+    process). For this reason, they need even higher canonicalization. For this
+    reason, we apply the same function but with stronger constants.
+
+    \section{Partial frees}
+    An interesting implication of our approach is the possibilities of
+    ``partial frees'', in which \emph{a part} of a buffer is deallocated. This
+    is not allowed in ``classical allocators'', but useful in some scenario.
+
+    \section{Adding libc malloc compatibility}
+    libc's allocation API diverges from Rust's in one major way: In libc the
+    only information provided upon reallocation and free is the pointer to the
+    buffer. In Rust's, however, the size of the allocation is provided as
+    well\cite{crichton15}.
+
+    This leads to interesting possibilities, mainly concerning the reduction
+    (or even complete removal -- as in \ralloc's case) of metadata of blocks.
+
+    The drawback is incompatibility. To solve this incompatibility, we encode
+    the buffer size into a metadata precursor of the buffer, when the
+    allocation is done through the libc API.
+
+    This metadata block is unaligned due to the blocks original alignment being
+    unknown. Before the metadata block we have an alignment padding block,
+    serving as aligning the allocated buffer.
+
+    When free or reallocation is invoked, we can obtain the size of the buffer
+    by simply reading this metadata block. This allows us to translate the libc
+    API calls into Rust-like allocation API calls.
+
+    %%% IMPLEMENTATION/PRACTICAL CONSIDERATION %%%
+
+    \section{Implementation}
+    \ralloc is a part of the Redox OS ecosystem and thus is, like all other
+    components, written in the Rust programming language. Rust puts great
+    emphasis on multithreading, and so does \ralloc.
+
+    Rust deploys a great deal of static analysis, which we naturally use to
+    improve correctness of \ralloc. The feature we use the most is affine
+    types, which themself are a form of substructural types where passing the
+    type ``moves'' it out of scope. This allows us to effectively reason about
+    things such as use-after-free and illegal aliasing.
+
+    Our implementation is written as semi-literate programming, and more than
+    half of the lines of code are API documentation or comments. This is a
+    deliberate choice, since we hope to force the programmer to think and
+    explain why the algorithm works, hopefully uncovering bugs in it.
+
+    \subsection{Debugging}
+    Our implementation deploys extensive debug checks. Every invariant is
+    carefully checked in ``debugging mode'', this allows for efficiently
+    uncovering subtle bugs.
+
+    Invariants which are relied on for safety (guarantees) are checked through
+    assertions, which are tested even in non-debug mode. Disassembling shows
+    that the vast majority of these are optimized out or have no impact on
+    performance\footnote{i.e. no observable difference is seen.}.
+
+    For a downstream user, who wish to debug their program, we make
+    configurable API calls to the debugger, informing about free and
+    uninitialized memory.
+
+    \subsection{Logging}
+    Everything is (optionally) logged to a configurable target. The log is
+    separated into multiple ``log levels'', an idea which is used in many
+    modern logging systems.
+
+    \subsection{Configuration}
+    Configuration is handled by linking to a shim library, which provides
+    constants and functions for binding and configuring \ralloc. This approach
+    saves \ralloc from the problems \texttt{mallopt}\footnote{The problems are
+        mainly caused by global configuration, in which querying a parameter
+        requires locking a global lock.}.
+
+    The downside being that \ralloc is no longer configurable at runtime.
+    This can be fixed by replacing the default shim implementation with a
+    custom one.
+
+    \section{Measuring performance}
+
+    \section{Limitations}
+
+    %%% CLOSING WORDS %%%
+
+    \section{Future work}
+
+    We are interested in investigating storing the original thread of an
+    allocated buffer to be able to return it and reduce external fragmentation.
+    The thread is represented by a pointer to some concurrent channel, which
+    is used to pass over the block in case of cross-thread drops. Naturally, to
+    avoid alignment issues we place this pointer after the buffer. This has the
+    positive side-effect of revealing buffer overruns by damaging the pointer
+    and likely producing a segmentation fault.
+
+    \section{Thanks to}
+
+    Special thanks to Thomas Levy, whom helped implementing and developing
+    \ralloc.
+
+    %%% BIBLIOGRAPHY %%%
+
+    \begin{thebibliography}{9}
+        \bibitem{redoxweb}
+            \url{http://redox-os.org},
+            retrieved \today
+        \bibitem{rustweb}
+            \url{http://rust-lang.org},
+            retrieved \today
+        \bibitem{bonwick94}
+            Jeff Bonwick,
+            \emph{The Slab Allocator: An Object-Caching Kernel Memory Allocator},
+            1994
+        \bibitem{mackall05}
+            Matt Mackall,
+            ``slob: introduce the SLOB allocator'',
+            Linux Mailing List,
+            2005
+        \bibitem{knowlton65}
+             Kenneth C. Knowlton,
+             \emph{A Fast storage allocator},
+             1966
+        \bibitem{pugh89}
+            William Pugh,
+            \emph{Skip Lists: A Probabilistic Alternative to Balanced Trees},
+            1989
+        \bibitem{manghwani05}
+             Rahul Manghwani and Tao He,
+             \emph{Scalable Memory Allocation},
+             2005
+        \bibitem{crichton15}
+            Alex Crichton,
+            ``RFC: Allow changing the default allocator'',
+            2015
+    \end{thebibliography}
+\end{document}
