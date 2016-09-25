@@ -211,7 +211,7 @@ impl Block {
         log!(INTERNAL, "Padding {:?} to align {}", self, align);
 
         // FIXME: This functions suffers from external fragmentation. Leaving bigger segments might
-        // increase performance.
+        //        increase performance.
 
         // Calculate the aligner, which defines the smallest size required as precursor to align
         // the block to `align`.
@@ -307,6 +307,12 @@ impl cmp::Eq for Block {}
 impl fmt::Debug for Block {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "0x{:x}[{}]", *self.ptr as usize, self.size)
+    }
+}
+
+impl Drop for Block {
+    fn drop(&mut self) {
+        debug_assert!(self.is_empty(), "Leaking a non-empty block.");
     }
 }
 

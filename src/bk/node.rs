@@ -65,7 +65,7 @@ impl Node {
 
         // Follow the shortcuts until we reach `new_node`.
         // TODO: Unroll the first iteration of the loop below to avoid the unneccesary
-        // branch in the first iteration's call of `cmp::max`.
+        //       branch in the first iteration's call of `cmp::max`.
         for i in below {
             new_fat = cmp::max(i.fat, new_fat);
 
@@ -128,7 +128,7 @@ impl Node {
             //    (_/'~~      ''''(;
 
             // FIXME: The short-circuit in `calculate_fat_value` makes the check incomplete, if a
-            // larger element follows.
+            //        larger element follows.
 
             // Check the fat value of the bottom level.
             assert!(self.shortcuts[0].fat == self.calculate_fat_value_bottom(), "The bottom layer's \

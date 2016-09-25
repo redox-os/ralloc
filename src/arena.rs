@@ -86,6 +86,8 @@ impl<T> Arena<T> {
     #[inline]
     pub fn new() -> Arena<T> {
         // Make sure the links fit in.
+        // FIXME: When unsafe unions lands, this assertion can be removed in favour of storing
+        //        values of some union type.
         assert!(mem::size_of::<T>() >= mem::size_of::<PointerList>(), "Arena list is unable to \
                 contain a link (type must be pointer sized or more).");
 
@@ -133,52 +135,17 @@ impl<T> Arena<T> {
         }
     }
 
-    /// Provide this arena with some block.
+    /// Provide this arena with some uninitialized segment.
     ///
-    /// This is used to fill the arena with memory from some source by essentially breaking the
-    /// block up and linking each piece together.
-    ///
-    /// # Panics
-    ///
-    /// This will hit an assertion if `T`'s size doesn't divide the block's size.
+    /// This is used to fill the arena with memory from some source by essentially linking each
+    /// piece together.
     #[inline]
-    pub fn provide(&mut self, block: Block) {
-        // Some assertions...
-        assert!(block.size() % mem::size_of::<T>() == 0, "`T`'s size does not divide the block's.");
-        assert!(block.aligned_to(mem::align_of::<T>()) == 0, "Block is unaligned to `T`.");
+    pub fn provide(&mut self, new: Uninit<[T]>) {
+        log!(DEBUG, "Providing {:?} to arena.", new.as_ptr().len());
 
-        // We log for convenience.
-        log!(DEBUG, "Providing {:?} to arena.", block);
-
-        // Calculate the end pointer.
-        let end = Pointer::from(block.empty_right()).cast();
-        // Calculate the start pointer.
-        let mut ptr: Pointer<PointerList>: Pointer::from(block).cast();
-
-        loop {
-            // We offset the current pointer to get the pointer to the next piece, which will
-            // define the value we will put at `ptr`.
-            // NB: We do not use `offset` because it asserts that we're inbound. Breaking this
-            // invariant would lead to undefined behavior. Instead we do custom convert'n'add
-            // arithmetic on the pointer.
-            let next_ptr = Pointer::new((*ptr.clone() as usize + mem::size_of::<PointerList>()) as *mut PointerList);
-
-            // If the new pointer goes beyond the end, we're done.
-            if next_ptr == end {
-                // We reached the end, so we leave a `None`.
-                *ptr = PointerList {
-                    head: None,
-                }
-
-                break;
-            }
-
-            // Make the piece point to the next piece.
-            *ptr = PointerList {
-                head: Some(next_ptr),
-            };
-            // Update the pointer counter.
-            ptr = next_ptr;
+        for n in 0..new.as_ptr().len() {
+            // Push the nth element to the inner pointer list.
+            self.list.push(new.as_ptr().clone().cast::<T>().offset(n).cast());
         }
     }
 }

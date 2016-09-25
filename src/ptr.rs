@@ -121,14 +121,9 @@ impl<T> ops::Deref for Pointer<T> {
 pub struct Jar<T: Leak> {
     /// The inner pointer.
     ///
-    /// This has four guarantees:
-    ///
-    /// 1. It is valid and initialized.
-    /// 2. The lifetime is tied to the ownership of the box (i.e. it is valid until manually
-    ///    deallocated).
-    /// 3. It is aligned to the alignment of `T`.
-    /// 4. It is non-aliased.
-    ptr: Pointer<T>,
+    /// Asside from the guarantees specified for `Uninit`, it has the additional guarantee of being
+    /// initialized.
+    ptr: Uninit<T>,
 }
 
 impl<T: Leak> Jar<T> {
@@ -137,13 +132,49 @@ impl<T: Leak> Jar<T> {
     /// # Safety
     ///
     /// Make sure the pointer is valid, initialized, non-aliased, and aligned. If any of these
-    /// invariants are broken, unsafety occurs.
+    /// invariants are broken, unsafety might occur.
     #[inline]
     pub unsafe fn from_raw(ptr: Pointer<T>) -> Jar<T> {
         debug_assert!(ptr.aligned_to(mem::align_of::<T>()), "`ptr` is unaligned to `T`.");
 
         Jar { ptr: ptr }
     }
+}
+
+/// An owned, uninitialized pointer.
+#[must_use = "`Uninit` does not handle the destructor automatically, please free it into an arena \
+              to avoid memory leaks."]
+pub struct Uninit<T: Leak> {
+    /// The inner pointer.
+    ptr: Pointer<T>,
+}
+
+impl<T: Leak> Uninit<T> {
+    /// Create a new owned, uninitialized pointer.
+    ///
+    /// # Invariants
+    ///
+    /// Four invariants must be satisfied for the input pointer:
+    ///
+    /// 1. The pointer is valid.
+    /// 2. The lifetime is tied to the ownership of the box (i.e. it is valid until manually
+    ///    deallocated).
+    /// 3. It is aligned to `T`.
+    /// 4. It is non-aliased.
+    pub unsafe fn new(ptr: Pointer<T>) -> Uninit<T> {
+        debug_assert!(ptr.aligned_to(Align(mem::align_of::<T>())), "Pointer not aligned to `T`.");
+
+        Uninit { ptr: ptr }
+    }
+
+    /// Get the inner pointer.
+    pub fn as_ptr(&self) -> &Pointer<T> {
+        &self.ptr
+    }
+}
+
+impl<T: Leak> Drop for Uninit<T> {
+    panic!("Leaking a `Uninit<T>`. This should likely have been freed instead.");
 }
 
 impl<T: Leak> ops::Deref for Jar<T> {

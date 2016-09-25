@@ -20,7 +20,7 @@ struct Seek<'a> {
     ///
     /// So, the back look of this particular seek is `[6, 7, 7, ...]`.
     // FIXME: Find a more rustic way than raw pointers.
-    back_look: [*mut Shortcuts; LEVELS.0],
+    back_look: [Pointer<Shortcuts>; LEVELS.0],
     /// A pointer to a pointer to the found node.
     ///
     /// This is the node equal to or less than the target. The two layers of pointers are there to
@@ -116,7 +116,7 @@ impl<'a> Seek<'a> {
                 i.update_fat(self.node.block.size(), block::Size(0));
 
                 // TODO: Consider breaking this loop into two loops to avoid too many fat value
-                // updates.
+                //       updates.
             }
 
             // Finally, replace the useless node, and free it to the arena.
@@ -133,7 +133,7 @@ impl<'a> Seek<'a> {
     //
     // The new shortcut's fat value will be set to the block's size, and recomputation is likely
     // needed to update it.
-    fn update_shortcut(&mut self, lv: shortcut::Level) -> *mut Shortcut {
+    fn update_shortcut(&mut self, lv: shortcut::Level) -> Pointer<Shortcut> {
         // Make the old shortcut point to `self.node`.
         let old_next = mem::replace(&mut self.back_look[lv].next, Some(self.node));
         mem::replace(&mut self.back_look[lv], Shortcut {

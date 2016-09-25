@@ -5,13 +5,16 @@
 
 use prelude::*;
 
-/// Types that have no destructor.
+/// Types that have no (or a diverging) destructor.
 ///
-/// This trait holds the invariant that our type carries no destructor.
+/// This trait holds the invariant that our type is one of the following:
 ///
-/// Since one cannot define mutually exclusive traits, we have this as a temporary hack.
+/// 1. carries a diverging destructor.
+/// 2. carries a destructor which diverges if a (effectless) condition is true.
+/// 3. carries no destructor.
 pub unsafe trait Leak {}
 
 unsafe impl Leak for Block {}
 unsafe impl<T> Leak for Jar<T> {}
+unsafe impl<T> Leak for Uninit<T> {}
 unsafe impl<T> Leak for T where T: Copy {}

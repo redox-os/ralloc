@@ -39,7 +39,7 @@ tls! {
 /// This is a macro due to the lack of generic closure, which makes it impossible to have one
 /// closure for both cases (global and local).
 // TODO: Instead of falling back to the global allocator, the thread dtor should be set such that
-// it run after the TLS keys that might be declared.
+//       it run after the TLS keys that might be declared.
 macro_rules! get_allocator {
     (|$v:ident| $b:expr) => {{
         // Get the thread allocator, if TLS is enabled
@@ -204,7 +204,7 @@ impl LocalAllocator {
             let global_alloc = global_alloc.get();
 
             // TODO: we know this is sorted, so we could abuse that fact to faster insertion in the
-            // global allocator.
+            //       global allocator.
 
             alloc.into_inner().inner.for_each(move |block| global_alloc.free(block));
         }

@@ -54,9 +54,12 @@ struct BufWriter<'a> {
 
 impl<'a> fmt::Write for BufWriter<'a> {
     fn write_str(&mut self, s: &str) -> fmt::Result {
+        // Find the appropriate length of the copied subbuffer.
         let amt = cmp::min(s.len(), self.buffer.len());
-        let (a, b) = mem::replace(self, &mut []).split_at_mut(amt);
-        a.copy_from_slice(&s.as_bytes()[..amt]);
+        // Split the buffer.
+        let buf = mem::replace(self.buffer, &mut [])[..amt];
+        // Memcpy the content of the string.
+        buf.copy_from_slice(&s.as_bytes()[..amt]);
 
         Ok(())
     }
