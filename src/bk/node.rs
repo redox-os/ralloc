@@ -1,6 +1,11 @@
 /// A block list node.
 ///
-/// 
+/// A node consists of three components:
+///
+/// 1. The inner value that the node holds.
+/// 2. A pointer to the next node.
+/// 3. A stack of so called "shortcuts", which contains data about jumping over/searching for
+///    nodes.
 struct Node {
     /// The inner block.
     ///
@@ -18,13 +23,11 @@ struct Node {
     /// This is a stack of linked list nodes, such that any entry has a list which is a superset of
     /// the latter. The lowest layer is a subset of the block list itself.
     ///
-    /// ```
-    /// ...
-    /// 2      # ---------------------> [6] ---------------------> [9] -------------> NIL
-    /// 1      # ---------------------> [6] ---> [7] ------------> [9] -------------> NIL
-    /// 0      # ------------> [5] ---> [6] ---> [7] ------------> [9] ---> [10] ---> NIL
-    /// bottom # ---> [1] ---> [5] ---> [6] ---> [7] ---> [8] ---> [9] ---> [10] ---> NIL
-    /// ```
+    ///     ...
+    ///     2      # ---------------------> [6] ---------------------> [9] -------------> NIL
+    ///     1      # ---------------------> [6] ---> [7] ------------> [9] -------------> NIL
+    ///     0      # ------------> [5] ---> [6] ---> [7] ------------> [9] ---> [10] ---> NIL
+    ///     bottom # ---> [1] ---> [5] ---> [6] ---> [7] ---> [8] ---> [9] ---> [10] ---> NIL
     ///
     /// As a result the lowest entry is the most dense.
     ///
@@ -34,6 +37,14 @@ struct Node {
 }
 
 impl Node {
+    /// Insert a new node after this node.
+    fn insert(&mut self, new_node: Jar<Node>) {
+        take::replace_with(self, |node| {
+            new_node.next = Some(node);
+            new_node
+        });
+    }
+
     // TODO: Implement `IntoIterator`.
     fn iter(&mut self) -> PoolIter {
         PoolIter {

@@ -5,22 +5,25 @@ struct Seek<'a> {
     ///
     /// The lower indexes are the denser layers.
     ///
+    /// # An important note!
+    ///
+    /// It is crucial that the backlook is pointers to shortcuts _before_ the target, not shortcuts
+    /// starting at the target.
+    ///
     /// # Example
     ///
     /// Consider if we search for 8. Now, we move on until we overshoot. The node before the
     /// overshot is a skip (marked with curly braces).
     ///
-    /// ```
-    /// ...
-    /// 2      # ---------------------> {6} ---------------------> [9] -------------> NIL
-    /// 1      # ---------------------> [6] ---> {7} ------------> [9] -------------> NIL
-    /// 0      # ------------> [5] ---> [6] ---> {7} ------------> [9] ---> [10] ---> NIL
-    /// bottom # ---> [1] ---> [5] ---> [6] ---> [7] ---> [8] ---> [9] ---> [10] ---> NIL
-    /// ```
+    ///     ...
+    ///     2      # ---------------------> {6} ---------------------> [9] -------------> NIL
+    ///     1      # ---------------------> [6] ---> {7} ------------> [9] -------------> NIL
+    ///     0      # ------------> [5] ---> [6] ---> {7} ---> [8] ---> [9] ---> [10] ---> NIL
+    ///     bottom # ---> [1] ---> [5] ---> [6] ---> [7] ---> [8] ---> [9] ---> [10] ---> NIL
     ///
-    /// So, the back look of this particular seek is `[6, 7, 7, ...]`.
+    /// So, the lookback of this particular seek is `[6, 7, 7, ...]`.
     // FIXME: Find a more rustic way than raw pointers.
-    back_look: [Pointer<Shortcuts>; LEVELS.0],
+    lookback: [Pointer<Shortcuts>; LEVELS.0],
     /// A pointer to a pointer to the found node.
     ///
     /// This is the node equal to or less than the target. The two layers of pointers are there to
@@ -35,7 +38,7 @@ impl<'a> Seek<'a> {
     #[inline]
     fn update_fat(&mut self, size: block::Size, above: shortcut::Level) {
         // Go from the densest layer and up, to update the fat node values.
-        for i in self.back_look.iter_mut().skip(above) {
+        for i in self.lookback.iter_mut().skip(above) {
             if !i.update_fat(size) {
                 // Short-circuit for performance reasons.
                 break;
@@ -104,9 +107,9 @@ impl<'a> Seek<'a> {
             //     # -5-------------------> [7] -7-> [17] -17---------> [6] -10-----------> NIL
             //     # -5----------> [1] -1-> [7] -7-> [17] -17---------> [6] -6-> [10] -10-> NIL
             //     # -5-> [5] -1-> [1] -1-> [7] -7-> [17] -17---------> [6] -6-> [10] -10-> NIL
-            // Fortunately, we know the back look of this particular seek, so we can simply iterate
+            // Fortunately, we know the lookback of this particular seek, so we can simply iterate
             // and set:
-            for (i, shortcut) in self.back_look.iter().zip(i.next.shortcuts) {
+            for (i, shortcut) in self.lookback.iter().zip(i.next.shortcuts) {
                 // Update the shortcut to skip over the next shortcut. Note that this statements
                 // makes it impossible to shortcut like in `insert`.
                 i.next = shortcut.next;
@@ -135,8 +138,8 @@ impl<'a> Seek<'a> {
     // needed to update it.
     fn update_shortcut(&mut self, lv: shortcut::Level) -> Pointer<Shortcut> {
         // Make the old shortcut point to `self.node`.
-        let old_next = mem::replace(&mut self.back_look[lv].next, Some(self.node));
-        mem::replace(&mut self.back_look[lv], Shortcut {
+        let old_next = mem::replace(&mut self.lookback[lv].next, Some(self.node));
+        mem::replace(&mut self.lookback[lv], Shortcut {
             next: old_next,
             fat: self.node.block.size(),
         });
@@ -156,22 +159,16 @@ impl<'a> Seek<'a> {
             // Check that we're inserting at a fitting position, such that the list is kept sorted.
             debug_assert!(self.node.block < block, "Inserting at a wrong position.");
 
+            // Generate the maximum level of the new node's shortcuts.
+            let height = shortcut::Level::generate();
+
             // Put the old node behind the new node holding block.
-            let mut new_node = arena.alloc(Node {
+            seek.node.insert(arena.alloc(Node {
                 block: block,
                 // Place-holder.
                 shortcuts: Default::default(),
                 next: None,
-            });
-
-            // Generate the maximum level of the new node's shortcuts.
-            let height = shortcut::Level::generate();
-
-            // Insert the new node up front, shifting the rest forward.
-            take::replace_with(seek.node, |node| {
-                new_node.next = Some(node);
-                new_node
-            });
+            }));
 
             // If we actually have a bottom layer (i.e. the generated level is higher than zero),
             // we obviously need to update its fat values based on the main list.
@@ -186,7 +183,7 @@ impl<'a> Seek<'a> {
                 // Calculate the fat value of the bottom layer.
                 let new_fat = seek.node.calculate_fat_value_bottom();
 
-                let skip = &mut seek.back_look[0];
+                let skip = &mut seek.lookback[0];
                 if new_fat == skip.fat {
                     if let Some(next) = skip.next {
                         next.fat = next.calculate_fat_value_bottom();
@@ -230,7 +227,7 @@ impl<'a> Seek<'a> {
                 // optimizations forever.
 
                 // Avoid multiple bound checks.
-                let skip = &mut seek.back_look[lv];
+                let skip = &mut seek.lookback[lv];
                 // The shortcut behind the updated one might be invalidated as well. We use a nifty
                 // trick: If the fat node is not present on one part of the split (defined by the
                 // newly inserted node), it must fall on the other. So, we can shortcut and safely
@@ -290,27 +287,40 @@ impl<'a> Seek<'a> {
                 i.check();
             }
 
-            // Check the back look.
-            let mut iter = self.back_look().peekable();
+            // Make sure that the first lookback entry is overshooting the node as expected.
+            assert!(self.lookback[0].next.and_then(|x| x.block) >= self.node.block, "The first \
+                    lookback entry is not overshooting the node of the seek.");
+
+            // Check the lookback.
+            let mut iter = self.lookback.peekable();
             let mut n = 0;
             loop {
                 let cur = iter.next();
                 let next = iter.peek();
 
-                if let (Some(cur), Some(next)) = (cur, next) {
-                    // The fat value satisfy the heap property, and thus must be ordered as such.
-                    assert!(cur.fat <= next.fat, "The {}'th back look entry has a fat value higher \
-                            than its parent level, which ought to be less dense.", n);
-                    // The next layer should be less dense, as such, the pointer is lower than the
-                    // current one.
-                    assert!(cur.next >= next.next, "The {}'th back look entry's next-node pointer \
-                            is lower than the parent level's pointer, despite that it ought to be \
-                            denser.", n);
+                if let Some(cur) = cur {
+                    // Make sure the shortcut doesn't start at the node (this is done by making
+                    // sure the lookback entry and the n'th shortcut of the current node are
+                    // distinct).
+                    assert!(cur.next != self.node.shortcuts[n].next, "The {}'th lookback entry \
+                            starts at the target node.");
 
-                    n += 1;
+                    if let Some(next) = next {
+                        // The fat value satisfy the heap property, and thus must be ordered as such.
+                        assert!(cur.fat <= next.fat, "The {}'th lookback entry has a fat value higher \
+                                than its parent level, which ought to be less dense.", n);
+                        // The next layer should be less dense, as such, the pointer is lower than the
+                        // current one.
+                        assert!(cur.next >= next.next, "The {}'th lookback entry's next-node pointer \
+                                is lower than the parent level's pointer, despite that it ought to be \
+                                denser.", n);
+                    }
                 } else {
                     break;
                 }
+
+                // Increment the counter (go to the next lookback entry).
+                n += 1;
             }
         }
     }

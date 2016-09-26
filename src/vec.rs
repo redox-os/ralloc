@@ -5,7 +5,7 @@ use prelude::*;
 use core::{slice, ops, mem, ptr};
 
 // Derive the length newtype.
-usize_newtype!(pub VecElem);
+usize_newtype!(pub Elements);
 
 /// A low-level vector primitive.
 ///
@@ -17,11 +17,11 @@ pub struct Vec<T: Leak> {
     /// The capacity of the buffer.
     ///
     /// This demonstrates the lengths before reallocation is necessary.
-    cap: VecElem,
+    cap: Elements,
     /// The length of the vector.
     ///
     /// This is the number of elements from the start, that is initialized, and can be read safely.
-    len: VecElem,
+    len: Elements,
 }
 
 impl<T: Leak> Vec<T> {
@@ -32,7 +32,7 @@ impl<T: Leak> Vec<T> {
     /// This is unsafe, since it won't initialize the buffer in any way, possibly breaking type
     /// safety, memory safety, and so on. Thus, care must be taken upon usage.
     #[inline]
-    pub unsafe fn from_raw_parts(block: Block, len: VecElem) -> Vec<T> {
+    pub unsafe fn from_raw_parts(block: Block, len: Elements) -> Vec<T> {
         Vec {
             len: len,
             cap: block.size() / mem::size_of::<T>(),
@@ -77,7 +77,7 @@ impl<T: Leak> Vec<T> {
 
     /// Get the capacity of this vector.
     #[inline]
-    pub fn capacity(&self) -> VecElem {
+    pub fn capacity(&self) -> Elements {
         self.cap
     }
 
@@ -128,12 +128,12 @@ impl<T: Leak> Vec<T> {
 
     /// Truncate this vector.
     ///
-    /// This is O(1).
+    /// This is $$O(1)$$.
     ///
     /// # Panics
     ///
     /// Panics on out-of-bound.
-    pub fn truncate(&mut self, len: VecElem) {
+    pub fn truncate(&mut self, len: Elements) {
         // Bound check.
         assert!(len <= self.len, "Out of bound.");
 

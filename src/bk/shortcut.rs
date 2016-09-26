@@ -16,7 +16,7 @@ impl Level {
     /// needed.
     #[inline]
     fn generate_level() -> Level {
-        // Naturally, the ffz conforms to our wanted probability distribution, $p(x) = 2^{-x}$a. We
+        // Naturally, the ffz conforms to our wanted probability distribution, $$p(x) = 2^{-x}$$. We
         // apply a bit mask to saturate when the ffz is greater than `LEVELS`.
         (random::get() & (1 << LEVELS - 1)).trailing_zeros()
     }
@@ -47,7 +47,7 @@ struct Shortcut {
 impl Shortcut {
     #[inline]
     fn is_null(&self) -> bool {
-        self.next.is_null()
+        self.fat == 0
     }
 
     /// Update the fat value in case the new node is bigger than the current fat node.
@@ -60,7 +60,10 @@ impl Shortcut {
     /// # Short-circuiting
     ///
     /// The returned value indicates if the caller should continue propagating new fat value up.
-    /// This is based on the observation that updating the fat value is similar to heap insertion.
+    /// This can be either because the updated fat value is equal to old fat value, or that the
+    /// shortcut was null (and thus all higher shortcuts are too).
+    ///
+    /// The former is based on the observation that updating the fat value is similar to heap insertion.
     ///
     /// Consider insertion a block of size 4:
     ///     [6] -6-------------------> ...
@@ -80,17 +83,21 @@ impl Shortcut {
     ///         4
     ///         |
     ///         2
-    /// Let _A_ be a node with set of children _C_, then_ A = max(C)_. As such, if I start in the
-    /// bottom and iterate upwards, as soon as the value stays unchanged, the rest of the values
-    /// won't change either.
+    /// Let $$A$$ be a node with set of children $$C$$, then $$A = \max(C)$$. As such, if I start
+    /// in the bottom and iterate upwards, as soon as the value stays unchanged, the rest of the
+    /// values won't change either.
     #[inline]
-    fn update_fat(&mut self, new_node: block::Size) -> bool {
-        let res = self.fat <= self.node.block.size();
+    fn update_fat(&mut self, new_size: block::Size) -> bool {
+        if self.fat < new_size && !self.is_null() {
+            // The fat value is smaller than the new size and thus an update is required.
+            self.fat = new_size;
 
-        // We max them with the new block size to ensure they're properly set.
-        self.fat = cmp::max(i.fat, self.node.block.size());
-
-        res
+            true
+        } else {
+            // Since the old fat value is either not smaller than or empty, we can safely
+            // shortcircuits (see the notes layed out in the documentation comment).
+            false
+        }
     }
 }
 
