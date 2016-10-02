@@ -1,3 +1,6 @@
+/// A "seek".
+///
+/// Seek represents the a found node ("needle") and backtracking information ("lookback").
 struct Seek<'a> {
     /// The last shortcut below our target for each level.
     ///
@@ -32,14 +35,17 @@ struct Seek<'a> {
 }
 
 impl<'a> Seek<'a> {
-    /// Update the fat values of this seek.
+    /// Update the fat values of this seek to be higher than or equal to some new block size.  .
     ///
-    /// This will run over and update the fat values of shortcuts above some level with a new size.
+    /// This will simply run over and update the fat values of shortcuts above some level with a
+    /// new size.
+    ///
+    /// Note that this cannot be used to remove a block, since that might decrease some fat values.
     #[inline]
-    fn update_fat(&mut self, size: block::Size, above: shortcut::Level) {
+    fn increase_fat(&mut self, size: block::Size, above: shortcut::Level) {
         // Go from the densest layer and up, to update the fat node values.
         for i in self.lookback.iter_mut().skip(above) {
-            if !i.update_fat(size) {
+            if !i.increase_fat(size) {
                 // Short-circuit for performance reasons.
                 break;
             }
@@ -55,7 +61,7 @@ impl<'a> Seek<'a> {
             //     [==self=============] [==rest==]
 
             // Update the fat values.
-            self.update_fat(self.node.block.size(), 0);
+            self.increase_fat(self.node.block.size(), 0);
 
             // If our configuration now looks like:
             //     [==self=============][==rest==]
@@ -73,7 +79,7 @@ impl<'a> Seek<'a> {
             //     [==self==] [==right=============]
 
             // Update the fat values.
-            self.update_fat(block.size(), 0);
+            self.increase_fat(block.size(), 0);
 
             // In case that our new configuration looks like:
             //     [==self==][==right=============]
@@ -90,25 +96,6 @@ impl<'a> Seek<'a> {
             // block will be left right to the node. As such the fat node's size is greater than or
             // equal to the new, merged node's size. So we need not full reevaluation of the fat
             // values, instead we can simply climb upwards and max the new size together.
-
-            // Consider the following configuration:
-            //     # -5-------------------> [7] -9--------------------> [6] -10-----------> NIL
-            //     # -5-------------------> [7] -7-> [9] -9-----------> [6] -10-----------> NIL
-            //     # -5----------> [1] -1-> [7] -7-> [9] -9-----------> [6] -6-> [10] -10-> NIL
-            //     # -5-> [5] -5-> [1] -1-> [7] -7-> [9] -9--> [8] -8-> [6] -6-> [10] -10-> NIL
-            // After the merge, our diagram looks like:
-            //     # -5-------------------> [7] -9--------------------> [6] -10-----------> NIL
-            //     # -5-------------------> [7] -7-> [17] -9----------> [6] -10-----------> NIL
-            //     # -5----------> [1] -1-> [7] -7-> [17] -9----------> [6] -6-> [10] -10-> NIL
-            //     # ---> [5] -5-> [1] -1-> [7] -7-> [17] -9-> [0] -0-> [6] -6-> [10] -10-> NIL
-            // But we do not allow empty blocks. So we need to a) remove the link b) update the fat
-            // values:
-            //     # -5-------------------> [7] -17-------------------> [6] -10-----------> NIL
-            //     # -5-------------------> [7] -7-> [17] -17---------> [6] -10-----------> NIL
-            //     # -5----------> [1] -1-> [7] -7-> [17] -17---------> [6] -6-> [10] -10-> NIL
-            //     # -5-> [5] -1-> [1] -1-> [7] -7-> [17] -17---------> [6] -6-> [10] -10-> NIL
-            // Fortunately, we know the lookback of this particular seek, so we can simply iterate
-            // and set:
             for (i, shortcut) in self.lookback.iter().zip(i.next.shortcuts) {
                 // Update the shortcut to skip over the next shortcut. Note that this statements
                 // makes it impossible to shortcut like in `insert`.
@@ -116,14 +103,14 @@ impl<'a> Seek<'a> {
                 // Update the fat value to make sure it is greater or equal to the new block size.
                 // Note that we do not short-circuit -- on purpose -- due to the above statement
                 // being needed for correctness.
-                i.update_fat(self.node.block.size(), block::Size(0));
+                i.increase_fat(self.node.block.size(), block::Size(0));
 
                 // TODO: Consider breaking this loop into two loops to avoid too many fat value
                 //       updates.
             }
 
             // Finally, replace the useless node, and free it to the arena.
-            arena.free(mem::replace(self.node.next, self.node.next.unwrap().next)));
+            arena.free(mem::replace(self.node.next, self.node.next.unwrap().next));
         }
     }
 
@@ -189,7 +176,7 @@ impl<'a> Seek<'a> {
                         next.fat = next.calculate_fat_value_bottom();
                     }
                 } else {
-                    skip.node.shortcuts[0].update_fat(mem::replace(&mut skip.fat, new_fat));
+                    skip.node.shortcuts[0].increase_fat(mem::replace(&mut skip.fat, new_fat));
                 }
             }
 
@@ -255,7 +242,7 @@ impl<'a> Seek<'a> {
                     // because the size of _x_ could be greater than _f_, so we take the maximal of
                     // _x_ and _f_ and assigns that to _h_. This way we avoid having to iterate
                     // over all the nodes between _x_ and _b_.
-                    skip.next.unwrap().shortcuts[lv].update_fat(mem::replace(&mut skip.fat, new_fat), seek.node.block.size()));
+                    skip.next.unwrap().shortcuts[lv].increase_fat(mem::replace(&mut skip.fat, new_fat), seek.node.block.size());
                 }
             }
 
@@ -263,7 +250,7 @@ impl<'a> Seek<'a> {
             // new node was inserted below. Since we only inserted (i.e. added a potentially new
             // fat node), we simply need to max the old (unupdated) fat values with the new block's
             // size.
-            seek.update_fat(seek.node.block.size(), height);
+            seek.increase_fat(seek.node.block.size(), height);
 
             seek.node.check();
 
@@ -274,6 +261,10 @@ impl<'a> Seek<'a> {
     }
 
     fn remove(&mut self) -> Jar<Node> {
+        // Remove the shortcuts that skips the target node.
+        self.remove_shortcuts();
+        self.decrease_fat(self.node.size());
+
         unimplemented!();
     }
 

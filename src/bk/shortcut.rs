@@ -50,12 +50,15 @@ impl Shortcut {
         self.fat == 0
     }
 
-    /// Update the fat value in case the new node is bigger than the current fat node.
+    /// Increase the fat value in case the new node is bigger than the current fat node.
     ///
     /// When inserting it is important for us to maintain the invariants. In this case, keeping
     /// track of the size of the biggest node skipped. When a new node is inserted, this value
     /// should naturally reflect that. If the new node's size is in fact greater than the fat
     /// value, the fat value will be updated.
+    ///
+    /// However, if a node is removed, this function is not the appropriate one to update the fat
+    /// value, since such an operation might decrease the fat value, rather than increase it.
     ///
     /// # Short-circuiting
     ///
@@ -87,7 +90,7 @@ impl Shortcut {
     /// in the bottom and iterate upwards, as soon as the value stays unchanged, the rest of the
     /// values won't change either.
     #[inline]
-    fn update_fat(&mut self, new_size: block::Size) -> bool {
+    fn increase_fat(&mut self, new_size: block::Size) -> bool {
         if self.fat < new_size && !self.is_null() {
             // The fat value is smaller than the new size and thus an update is required.
             self.fat = new_size;
