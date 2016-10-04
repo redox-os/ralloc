@@ -15,6 +15,8 @@ use take;
 ///
 /// Any linking pointer must point to a valid buffer of minimum pointer size.
 #[derive(Default)]
+#[must_use = "Pointer lists have no destructors, so unless this arena is empty, the content should \
+              be freed to some arena."]
 struct PointerList {
     /// The head link of the list.
     head: Option<Pointer<PointerList>>,
@@ -63,6 +65,12 @@ impl PointerList {
     }
 }
 
+impl Drop for PointerList {
+    fn drop(&mut self) {
+        panic!("Leaking a `PointerList`. This should likely have been freed instead.");
+    }
+}
+
 /// A typed arena.
 ///
 /// This represented as a linked list of free blocks. The links them self are placed in the free
@@ -70,6 +78,8 @@ impl PointerList {
 ///
 /// `T` is guaranteed to be larger than pointer size (this is due to the necessity of being able to
 /// fill in the free segments with pointer to the next segment).
+#[must_use = "Arenas have no destructors, so unless this arena is empty, the content should be \
+              freed to some allocator."]
 pub struct Arena<T> {
     /// The internal list.
     list: PointerList,

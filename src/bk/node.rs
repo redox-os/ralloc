@@ -46,17 +46,25 @@ impl Node {
     }
 
     // TODO: Implement `IntoIterator`.
-    fn iter(&mut self) -> PoolIter {
+    fn iter(&mut self) -> impl Iterator<Item = &Node> {
         PoolIter {
             node: Some(self),
         }
     }
 
-    fn shortcuts(&self, lv: shotcut::Level) -> ShortcutIter {
+    /// Create an iterator following the `lv`'th shortcut.
+    fn follow_shortcut(&self, lv: shotcut::Level) -> impl Iterator<Item = Shortcut> {
         ShortcutIter {
             lv: lv,
             node: Some(self),
         }
+    }
+
+    /// An iterator over the shortcuts of this node.
+    ///
+    /// It starts with the lowest (densest) layer's shortcut and progress upwards.
+    fn shortcuts(&self) -> impl Iterator<Item = Shortcut> {
+        self.shortcuts.iter().take_while(|x| !x.is_null())
     }
 
     /// Calculate the fat value at some level based on the level below and the inner block's size.
@@ -103,7 +111,7 @@ impl Node {
     /// Calculate the fat value of a non bottom layer (i.e. level is greater than or equal to one).
     pub fn calculate_fat_value_non_bottom(&self, lv: shotcut::Level) -> block::Size {
         // Since `lv != 0` decrementing will not underflow.
-        self.calculate_fat_value(lv, self.shortcuts[lv - 1].shortcuts(lv - 1))
+        self.calculate_fat_value(lv, self.shortcuts[lv - 1].follow_shortcut(lv - 1))
     }
 
     /// Calculate the fat value of the lowest level.

@@ -8,6 +8,8 @@ struct Seek<'a> {
     ///
     /// The lower indexes are the denser layers.
     ///
+    /// An entry of this array is called a "skip", because it _skips_ over the node..
+    ///
     /// # An important note!
     ///
     /// It is crucial that the backlook is pointers to shortcuts _before_ the target, not shortcuts
@@ -44,7 +46,7 @@ impl<'a> Seek<'a> {
     #[inline]
     fn increase_fat(&mut self, size: block::Size, above: shortcut::Level) {
         // Go from the densest layer and up, to update the fat node values.
-        for i in self.lookback.iter_mut().skip(above) {
+        for i in &mut self.lookback[above..] {
             if !i.increase_fat(size) {
                 // Short-circuit for performance reasons.
                 break;
@@ -116,20 +118,30 @@ impl<'a> Seek<'a> {
 
     // Put a new shortcut starting at the current node at some level.
     //
-    // This will simply insert a shortcut on level `lv`, spanning `self.node` to the end of the old
-    // shortcut, which is returned.
+    // This will simply insert a shortcut on level `lv`, spanning the old shortcut to `self.node`.
     //
-    // The old shortcut is updated to point to `self.node`, but the fat value is kept as-is.
+    // The old shortcut is updated to point to a shortcut representing `self.node`, but the fat
+    // value is kept as-is.
     //
-    // The new shortcut's fat value will be set to the block's size, and recomputation is likely
-    // needed to update it.
-    fn update_shortcut(&mut self, lv: shortcut::Level) -> Pointer<Shortcut> {
+    // The new shortcut's fat value will be set to zero, and recomputation is likely needed to
+    // update it.
+    //
+    // # Illustrated
+    //
+    // We go from:
+    //     [self.lookback[lv]] -f-> [self.lookback[lv].next]
+    // To:
+    //     [self.lookback[lv]] -f-> [self.node] -0-> [old self.lookback[lv].next]
+    fn insert_shortcut(&mut self, lv: shortcut::Level) -> Pointer<Shortcut> {
+        debug_assert!(self.node.shortcuts[lv].is_null(), "Overwriting a non-null shortcut.");
+
         // Make the old shortcut point to `self.node`.
         let old_next = mem::replace(&mut self.lookback[lv].next, Some(self.node));
-        mem::replace(&mut self.lookback[lv], Shortcut {
+        // Update the shortcut of our node to point to the old shortcut's next node.
+        self.node.shortcuts[lv] = Shortcut {
             next: old_next,
-            fat: self.node.block.size(),
-        });
+            fat: block::Size(0),
+        };
     }
 
     /// Insert a block (no merge) _after_ the found node.
@@ -162,7 +174,7 @@ impl<'a> Seek<'a> {
             // FIXME: This code is copied from the loop below. Find a way to avoid repeating.
             if height > shortcut::Level(0) {
                 // Place the node into the bottom shortcut.
-                self.update_shortcut(shortcut::Level(0));
+                self.insert_shortcut(shortcut::Level(0));
 
                 // For details how this works, see the loop below. This is really just taken from
                 // the iteration from that to reflect the special structure of the block list.
@@ -183,7 +195,7 @@ impl<'a> Seek<'a> {
             // Place new shortcuts up to this level.
             for lv in shortcut::Level(1)..height {
                 // Place the node inbetween the shortcuts.
-                seek.place_node_inbetween(&mut seek.node, lv);
+                seek.insert_shortcut(lv);
 
                 // The configuration (at level `lv`) should now look like:
                 //     [seek.node] --> [old self.node] --> [old shortcut]
@@ -235,13 +247,13 @@ impl<'a> Seek<'a> {
                     // replace the new fat value and update the next segment with the old one.  As
                     // an example, suppose the configuration looked like:
                     //     [a] -f----------> [b]
-                    // And we inserted a new node _x_:
+                    // And we inserted a new node $x$:
                     //     [a] -g-> [x] -h-> [b]
-                    // Since the fat node (size _f_) couldn't be found on the left side (_g_) of
-                    // _x_, it must be on the right side (_h ≥ f_). It might not be equal to it,
-                    // because the size of _x_ could be greater than _f_, so we take the maximal of
-                    // _x_ and _f_ and assigns that to _h_. This way we avoid having to iterate
-                    // over all the nodes between _x_ and _b_.
+                    // Since the fat node (size $f$) couldn't be found on the left side ($g$) of
+                    // $x$, it must be on the right side ($h ≥ f$). It might not be equal to it,
+                    // because the size of $x$ could be greater than $f$, so we take the maximal of
+                    // $x$ and $f$ and assigns that to $h$. This way we avoid having to iterate
+                    // over all the nodes between $x$ and $b$.
                     skip.next.unwrap().shortcuts[lv].increase_fat(mem::replace(&mut skip.fat, new_fat), seek.node.block.size());
                 }
             }
@@ -260,12 +272,49 @@ impl<'a> Seek<'a> {
         self.check();
     }
 
-    fn remove(&mut self) -> Jar<Node> {
-        // Remove the shortcuts that skips the target node.
-        self.remove_shortcuts();
-        self.decrease_fat(self.node.size());
+    fn remove(self) -> Jar<Node> {
+        // Remove the shortcuts that skips the target node (exclude the node from the skip of every
+        // level). This is in place to make sure there's no dangling pointers after.
+        for (_, lookback) in self.node.shortcuts().zip(self.lookback) {
+            // Jump over the skip's next node (note how the shortcut will never start at
+            // `self.node` and hence always be the one we remove here). We can safely unwrap this,
+            // because we know that `self.node` is at least of this height, by the zip iterator
+            // adapter.
+            lookback.next = lookback.next.unwrap().next;
+        }
 
-        unimplemented!();
+        // Update the fat values to reflect the new state.
+        for i in self.lookback {
+            if i.fat == self.node.size() {
+                // Recalculate the fat value.
+                let old_fat = i.fat;
+                i.fat = i.calculate_fat_value(b);
+
+                if old_fat == i.fat {
+                    // The fat value was unchanged (i.e. there are multiple fat nodes), so we
+                    // shortcircuit, because these duplicates will exist in higher layers too (due
+                    // to the heap property).
+                    // TODO: Is heap property the right term here? It isn't technically simply due
+                    //       to the heap property...
+                    break;
+                }
+            } else {
+                // Since the node we're removing is not the same size as the fat node, it cannot be
+                // a fat node. Due to the heap property of the fat values in the lookback, we can
+                // shortcircuit (if we didn't remove the fat node in this layer, we didn't either
+                // on any of the later layers).
+                break;
+            }
+        }
+
+        // We use the lowest layer in the lookback to use as offset for our search for the node
+        // before `self.node`. We need to find said node to avoid having dangling pointers to
+        // `self.node`.
+        let before_node = self.lookback[0].iter().take_while(|x| x.block < self.node).last();
+        // Remove the next link to skip the current node.
+        before_node.next = self.node.next.take();
+
+        self.node
     }
 
     /// Check this seek.
@@ -278,9 +327,9 @@ impl<'a> Seek<'a> {
                 i.check();
             }
 
-            // Make sure that the first lookback entry is overshooting the node as expected.
+            // Make sure that the first skip is overshooting the node as expected.
             assert!(self.lookback[0].next.and_then(|x| x.block) >= self.node.block, "The first \
-                    lookback entry is not overshooting the node of the seek.");
+                    skip is not overshooting the node of the seek.");
 
             // Check the lookback.
             let mut iter = self.lookback.peekable();
@@ -291,26 +340,25 @@ impl<'a> Seek<'a> {
 
                 if let Some(cur) = cur {
                     // Make sure the shortcut doesn't start at the node (this is done by making
-                    // sure the lookback entry and the n'th shortcut of the current node are
-                    // distinct).
-                    assert!(cur.next != self.node.shortcuts[n].next, "The {}'th lookback entry \
-                            starts at the target node.");
+                    // sure the skip and the n'th shortcut of the current node are distinct).
+                    assert!(cur.next != self.node.shortcuts[n].next, "The {}'th skip starts at \
+                            the target node.");
 
                     if let Some(next) = next {
                         // The fat value satisfy the heap property, and thus must be ordered as such.
-                        assert!(cur.fat <= next.fat, "The {}'th lookback entry has a fat value higher \
-                                than its parent level, which ought to be less dense.", n);
+                        assert!(cur.fat <= next.fat, "The {}'th skip has a fat value higher than \
+                                its parent level, which ought to be less dense.", n);
                         // The next layer should be less dense, as such, the pointer is lower than the
                         // current one.
-                        assert!(cur.next >= next.next, "The {}'th lookback entry's next-node pointer \
-                                is lower than the parent level's pointer, despite that it ought to be \
+                        assert!(cur.next >= next.next, "The {}'th skip's next-node pointer is \
+                                lower than the parent level's pointer, despite that it ought to be \
                                 denser.", n);
                     }
                 } else {
                     break;
                 }
 
-                // Increment the counter (go to the next lookback entry).
+                // Increment the counter (go to the next skip).
                 n += 1;
             }
         }

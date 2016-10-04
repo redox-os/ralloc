@@ -28,7 +28,7 @@ impl Pool {
         //     # --> [1] --> [5] --> [6] --> [7] --> [8] --> [9] --> [10] --> NIL
 
         // Start at the highest (least dense) level.
-        let mut iter = self.head.shortcuts(shortcut::Level::max());
+        let mut iter = self.head.follow_shortcut(shortcut::Level::max());
         // Go forward until we overshoot.
         while let Some(shortcut_taken) = iter.take_while(|x| x < block).last() {
 
