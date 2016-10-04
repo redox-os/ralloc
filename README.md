@@ -6,8 +6,8 @@ This allocator is used as the default Redox.
 
 ## A note on its state.
 
-It fully works, although it is relatively slow, since it haven't been optimized
-yet.
+It fully works, although it is somewhat slower than jemalloc, since it haven't
+been optimized yet.
 
 I consider the state of the code quality very good.
 
