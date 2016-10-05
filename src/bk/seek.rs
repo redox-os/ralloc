@@ -62,7 +62,7 @@ impl<'a> Seek<'a> {
 
     /// Create an iterator over all of the skips of this seek.
     fn skips(&mut self) -> impl Iterator<Item = &mut Shortcut> {
-        self.skips_from(Level(0))
+        self.skips_from(Level::min())
     }
 
     /// Create an iterator over the skips of this seek starting at some level.
