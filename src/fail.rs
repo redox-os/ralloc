@@ -73,10 +73,10 @@ pub fn set_thread_oom_handler(handler: fn() -> !) {
 
     THREAD_OOM_HANDLER.with(|thread_oom| {
         // Replace it with the new handler.
-        let res = thread_oom.replace(Some(handler));
+        let old = thread_oom.replace(Some(handler));
 
         // Throw a warning if it overrides another handler.
-        if res.is_some() {
+        if old.is_some() {
             log!(WARNING, "An old thread OOM handler was overriden.");
         }
     });

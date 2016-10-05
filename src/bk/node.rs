@@ -33,7 +33,12 @@ struct Node {
     ///
     /// If we assume our node is `[6]`, the stack would contain shotcuts to 7, 7, and 8, in that
     /// order. The rest would simply be null pointers with fat value 0.
-    shortcuts: [Shortcut; LEVELS],
+    ///
+    /// # Height
+    ///
+    /// The index of the highest null shortcut (or, if none, the length of the array) is called the
+    /// height of the node.
+    shortcuts: lv::Array<Shortcut>,
 }
 
 impl Node {
@@ -72,7 +77,7 @@ impl Node {
     /// This will simply traverse the layer below (given in the form of an iterator) and find the
     /// maximal fat value. The result is guaranteed to be equal to or greater than
     /// `self.block.size()`.
-    fn calculate_fat_value<I>(&self, lv: shortcut::Level, below: I) -> block::Size
+    fn calculate_fat_value<I>(&self, lv: lv::Level, below: I) -> block::Size
         where I: Iterator<Item = &Node> {
         // We start at the block's size.
         let mut new_fat = 0;
@@ -154,7 +159,7 @@ impl Node {
                     fat value does not match the calculated fat value.");
 
             // Check the fat values of the non bottom level.
-            for lv in shortcut::level_iter().skip(1) {
+            for lv in lv::level_iter().skip(1) {
                 assert!(self.shortcuts[lv.into()].fat == self.calculate_fat_value_non_bottom(lv), "The \
                         bottom layer's fat value does not match the calculated fat value.");
             }
@@ -162,7 +167,7 @@ impl Node {
             // Check that the shortcut refers to a node with appropriate (equal to or greater)
             // height.
             // FIXME: Fold this loop to the one above.
-            for lv in shortcut::level_iter() {
+            for lv in lv::level_iter() {
                 assert!(!self.shortcuts[lv.into()].next.shortcuts[lv.into()].is_null(), "Shortcut \
                         points to a node with a lower height. Is this a dangling pointer?");
             }

@@ -30,7 +30,7 @@ impl PointerList {
     fn pop(&mut self) -> Option<Pointer<u8>> {
         if let Some(head) = self.head {
             // Get the head pointer.
-            let res = head.clone().cast();
+            let ret = head.clone().cast();
 
             unsafe {
                 // LAST AUDIT: 2016-08-24 (Ticki).
@@ -40,7 +40,7 @@ impl PointerList {
                 *self = ptr::read(*head);
             }
 
-            Some(res)
+            Some(ret)
         } else {
             // The head is `None`, thus the list is empty.
             None

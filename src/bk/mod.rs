@@ -23,6 +23,7 @@
 ///       |    __    \__.
 ///       |_!_|  |_!_|
 
+mod lv;
 mod node;
 mod seek;
 mod shortcut;

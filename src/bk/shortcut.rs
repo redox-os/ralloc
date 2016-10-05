@@ -1,43 +1,5 @@
 use block;
 
-// TODO: Tweak.
-// TODO: Move to shim.
-const LEVELS: Level = Level(8);
-
-usize_newtype!(pub Level);
-
-impl Level {
-    /// Generate a skip list level.
-    ///
-    /// This is equivalent to making `LEVELS` coinflips and count until you get heads and saturate to
-    /// `LEVELS` if none is made.
-    ///
-    /// We make use of bit hacks to speed this process up such that only one random state update is
-    /// needed.
-    #[inline]
-    fn generate_level() -> Level {
-        // Naturally, the ffz conforms to our wanted probability distribution, $$p(x) = 2^{-x}$$. We
-        // apply a bit mask to saturate when the ffz is greater than `LEVELS`.
-        (random::get() & (1 << LEVELS - 1)).trailing_zeros()
-    }
-
-    #[inline]
-    fn max() -> Level {
-        LEVELS - Level(1)
-    }
-}
-
-impl Into<usize> for Level {
-    fn into(self) -> usize {
-        self.0
-    }
-}
-
-#[inline]
-fn level_iter() -> impl Iterator<Item = Level> {
-    Level(0)..Level::max()
-}
-
 /// A shortcut (a pointer to a later node and the size of the biggest block it skips).
 ///
 /// A shortcut stores two values: a pointer to the node it skips to, and the size of the "fat
@@ -118,6 +80,7 @@ impl Shortcut {
     ///         4
     ///         |
     ///         2
+    ///
     /// Let $$A$$ be a node with set of children $$C$$, then $$A = \max(C)$$. As such, if I start
     /// in the bottom and iterate upwards, as soon as the value stays unchanged, the rest of the
     /// values won't change either.

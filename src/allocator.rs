@@ -47,7 +47,7 @@ macro_rules! get_allocator {
         {
             THREAD_ALLOCATOR.with(|thread_alloc| {
                 if let Some(mut thread_alloc_original) = thread_alloc.replace(None) {
-                    let res = {
+                    let ret = {
                         // Call the closure involved.
                         let $v = thread_alloc_original.get();
                         $b
@@ -56,7 +56,7 @@ macro_rules! get_allocator {
                     // Put back the original allocator.
                     thread_alloc.replace(Some(thread_alloc_original));
 
-                    res
+                    ret
                 } else {
                     // The local allocator seems to have been deinitialized, for this reason we fallback to
                     // the global allocator.

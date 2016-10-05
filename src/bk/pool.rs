@@ -28,12 +28,12 @@ impl Pool {
         //     # --> [1] --> [5] --> [6] --> [7] --> [8] --> [9] --> [10] --> NIL
 
         // Start at the highest (least dense) level.
-        let mut iter = self.head.follow_shortcut(shortcut::Level::max());
+        let mut iter = self.head.follow_shortcut(lv::Level::max());
         // Go forward until we overshoot.
         while let Some(shortcut_taken) = iter.take_while(|x| x < block).last() {
 
             // Decrement the level.
-            let shortcut::Level(lv) = iter.decrement_level();
+            let lv::Level(lv) = iter.decrement_level();
             log!(INTERNAL, "Going from level {} to level {}.", lv, lv - 1);
 
             // Update the back look respectively.
