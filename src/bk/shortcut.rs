@@ -38,9 +38,41 @@ fn level_iter() -> impl Iterator<Item = Level> {
     Level(0)..Level::max()
 }
 
+/// A shortcut (a pointer to a later node and the size of the biggest block it skips).
+///
+/// A shortcut stores two values: a pointer to the node it skips to, and the size of the "fat
+/// node(s)".
+///
+/// # Span
+///
+/// If a given node starts at $$a$$ and has a shortcut skipping to node $$b$$, then the shortcut's
+/// span is $$(a, b]$$. If it has no node to skip to (i.e. it is `None`), the shortcut spans from
+/// $$a$$ (exclusive) to the end of the list (inclusive).
+///
+/// In other words, the node which holds the shortcut is not included in the span, but the node it
+/// skips to is included.
+///
+/// # Fat nodes and fat values
+///
+/// If a block $$c \in S$$ with $$S$$ being the span of some shortcut satisfy $c \geq d$$ for any
+/// $$d \in S$$, this node is said to be a _fat node_.
+///
+/// In less formal terms, we can considered a fat node is (one of) the nodes with the biggest block
+/// in the span of the shortcut.
+///
+/// The size of the fat nodes is called the _fat value_ of the shortcut.
+///
+/// # Children
+///
+/// Because we can view the shortcuts as a tree satisfying the heap property wrt. the fat value, we
+/// refer to shortcuts which are contained in another shortcut's span as children of said shortcut.
 #[derive(Default)]
 struct Shortcut {
+    /// The node it skips to (if any).
     next: Option<Pointer<Node>>,
+    /// The fat value of this shortcut.
+    ///
+    /// This is the size of the biggest block the shortcut spans.
     fat: block::Size,
 }
 
