@@ -11,21 +11,27 @@ struct Pool {
 }
 
 impl Pool {
-    fn search(&mut self, block: Block) -> Seek {
+    /// Search the block pool for a particular block.
+    ///
+    /// The outline of the algorithm is this: We start by shortcutting from the top level until we
+    /// overshoot, then we repeat on the next level starting at the last non-overshot shortcut from
+    /// the previous level.
+    ///
+    /// The returned seek contains the shortcutted nodes ("lookback") and other data found while
+    /// searching. This can be used to manipulate the found node/block.
+    ///
+    /// # Example
+    ///
+    /// If we look for 8, we start in the top level and follow until we hit 9.
+    ///     # ~~~~~~~~~~~~~~~~~~> [6] --- overshoot ----> [9] -----------> NIL
+    ///     # ------------------> [6] ~~> [7] ----------> [9] -----------> NIL
+    ///     # ----------> [5] --> [6] ~~> [7] ----------> [9] --> [10] --> NIL
+    ///     # --> [1] --> [5] --> [6] --> [7] ~~> [8] --> [9] --> [10] --> NIL
+    fn search(&mut self, block: &Block) -> Seek {
         log!(DEBUG, "Searching the block pool for block {:?}...", block);
 
         // We start by an uninitialized value, which we fill out.
         let mut seek = unsafe { mem::uninitialized() };
-
-        // The outline of the algorithm is this: We start by shortcutting from the top level until
-        // we overshoot, then we repeat on the next level starting at the last non-overshot
-        // shortcut from the previous level.
-
-        // If we look for 8, we start in the top level and follow until we hit 9.
-        //     # ~~~~~~~~~~~~~~~~~~> [6] --- overshoot ----> [9] -----------> NIL
-        //     # ------------------> [6] --> [7] ----------> [9] -----------> NIL
-        //     # ----------> [5] --> [6] --> [7] ----------> [9] --> [10] --> NIL
-        //     # --> [1] --> [5] --> [6] --> [7] --> [8] --> [9] --> [10] --> NIL
 
         // Start at the highest (least dense) level.
         let mut iter = self.head.follow_shortcut(lv::Level::max());
@@ -63,25 +69,6 @@ impl Pool {
         seek
     }
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 // Here is a rare Ferris to cheer you up.
 //          |
