@@ -12,6 +12,8 @@
 /// Many of these algorithms are super complex, so it is important that they're throughoutly
 /// commented and documented to make sure the code is readable in the future.
 ///
+/// I've described some of the optimizations I use [here](http://ticki.github.io/blog/skip-lists-done-right/).
+///
 ///     /------------------------------------------\
 ///     | Welcome to the dark corner of `ralloc`,  |
 ///     | have fun, and may the red ox be with you |
