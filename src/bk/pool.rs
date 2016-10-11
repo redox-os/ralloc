@@ -10,29 +10,6 @@ struct Pool {
 }
 
 impl Pool {
-    /// Search the block pool for a particular block.
-    ///
-    /// The outline of the algorithm is this: We start by shortcutting from the top level until we
-    /// overshoot, then we repeat on the next level starting at the last non-overshot shortcut from
-    /// the previous level.
-    ///
-    /// # Example
-    ///
-    /// If we look for 8, we start in the top level and follow until we hit 9.
-    ///     ==================> [6] --- overshoot ----> [9] -----------> NIL
-    ///     ------------------> [6] ==> [7] ----------> [9] -----------> NIL
-    ///     ----------> [5] --> [6] ==> [7] ----------> [9] --> [10] --> NIL
-    ///     --> [1] --> [5] --> [6] --> [7] ==> [8] --> [9] --> [10] --> NIL
-    fn search(&mut self, block: &Block) -> Seek {
-        log!(DEBUG, "Searching the block pool for block {:?}...", block);
-
-        // Use `BlockSearcher` for this.
-        self.search_with(search::BlockSearcher {
-            needle: block,
-        }).unwrap()
-        // TODO: Find a way to fix this unwrap.
-    }
-
     /// Search the block pool with a particular searcher.
     ///
     /// The outline of the algorithm is this: We start by shortcutting from the top level until we
@@ -41,7 +18,15 @@ impl Pool {
     /// forward until we find a match.
     ///
     /// A "lookback", i.e. the refined nodes of every level is stored in the returned value.
-    fn search_with<S: Search>(&mut self, searcher: S) -> Result<Seek, ()> {
+    ///
+    /// # Example
+    ///
+    /// If we look for block 8, we start in the top level and follow until we hit 9.
+    ///     ==================> [6] --- overshoot ----> [9] -----------> NIL
+    ///     ------------------> [6] ==> [7] ----------> [9] -----------> NIL
+    ///     ----------> [5] --> [6] ==> [7] ----------> [9] --> [10] --> NIL
+    ///     --> [1] --> [5] --> [6] --> [7] ==> [8] --> [9] --> [10] --> NIL
+    fn search<S: Search>(&mut self, searcher: S) -> Result<Seek, ()> {
         // We start by an uninitialized value, which we fill out.
         let mut seek = unsafe { mem::uninitialized() };
 
