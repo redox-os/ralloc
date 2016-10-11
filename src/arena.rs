@@ -175,7 +175,7 @@ mod test {
     }
 
     #[test]
-    fn test_integers() {
+    fn integers() {
         let mut arena = make();
 
         let mut n = arena.alloc(200).unwrap();
@@ -196,7 +196,7 @@ mod test {
     }
 
     #[test]
-    fn test_oom() {
+    fn oom() {
         let mut arena = make();
 
         // Make the arena run dry.
@@ -228,7 +228,7 @@ mod test {
     }
 
     #[test]
-    fn test_cross_arena() {
+    fn cross_arena() {
         let mut arena1 = make();
         let mut arena2 = make();
 

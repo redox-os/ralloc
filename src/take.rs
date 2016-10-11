@@ -52,14 +52,14 @@ mod test {
     use core::cell::Cell;
 
     #[test]
-    fn test_replace_with() {
+    fn replace_with() {
         let mut x = Some("test");
         replace_with(&mut x, |_| None);
         assert!(x.is_none());
     }
 
     #[test]
-    fn test_replace_with_2() {
+    fn replace_with_2() {
         let is_called = Cell::new(false);
         let mut x = 2;
         replace_with(&mut x, |_| {

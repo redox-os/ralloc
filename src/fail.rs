@@ -88,7 +88,7 @@ mod test {
 
     #[test]
     #[should_panic]
-    fn test_panic_oom() {
+    fn panic_oom() {
         fn panic() -> ! {
             panic!("cats are not cute.");
         }
@@ -100,7 +100,7 @@ mod test {
     #[test]
     #[should_panic]
     #[cfg(feature = "tls")]
-    fn test_panic_thread_oom() {
+    fn panic_thread_oom() {
         fn infinite() -> ! {
             #[allow(empty_loop)]
             loop {}

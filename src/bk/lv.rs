@@ -46,6 +46,7 @@ impl Level {
         }
     }
 
+    #[inline]
     pub fn above(self) -> Option<Level> {
         // TODO: Find a way to eliminate this branch.
         if self == Level::max() {
@@ -132,6 +133,7 @@ impl Iterator for LevelIter {
 ///
 /// This is used to prevent bound checks, since the bound is encoded into the indexing type, and
 /// thus statically ensured.
+#[derive(Default)]
 pub struct Array<T> {
     inner: [T; LEVELS],
 }
@@ -147,5 +149,80 @@ impl<T> ops::Index<Level> for Array {
 impl<T> ops::IndexMut<Level> for Array {
     fn index_mut(&mut self, lv: Level) -> &mut T {
         self.inner.get_unchecked_mut(lv.0)
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    fn level_generation_dist() {
+        // The number of generated `None`s.
+        let mut nones = 0;
+        // Occurences of each level.
+        let mut occ = Array::default();
+        // Simulate tousand level generations.
+        for _ in 0..1000 {
+            if let Some(lv) = Level::generate() {
+                // Increment the occurence counter.
+                occ[lv] += 1;
+            } else {
+                // Increment the `None` counter.
+                nones += 1;
+            }
+        }
+
+        // Ensure that the number of `None`s is within the expected margin.
+        assert!((490..510).contains(nones));
+
+        let mut expected = 250;
+        for lv in Iter::all() {
+            // Ensure that the occurences of `lv` is within the expected margin.
+            assert!((expected - 10..expected + 10).contains(occ[lv]));
+        }
+    }
+
+    #[test]
+    fn above() {
+        assert_eq!(Level::max().above(), None);
+        assert_eq!(Level::min().above().unwrap() as usize, 1);
+    }
+
+    #[test]
+    fn iter() {
+        assert!(Iter::all().eq(0..Level::max() as usize));
+        assert!(Iter::non_bottom().eq(1..Level::max() as usize));
+    }
+
+    #[test]
+    fn array_max_index() {
+        assert_eq!(Array::<&str>::default()[Level::max()], "");
+        assert_eq!(Array::<u32>::default()[Level::max()], 0);
+        assert_eq!(&mut Array::<&str>::default()[Level::max()], &mut "");
+        assert_eq!(&mut Array::<u32>::default()[Level::max()], &mut 0);
+    }
+
+    #[test]
+    fn array_iter() {
+        let mut arr = Array::default();
+        for lv in Iter::all() {
+            arr[lv] = lv as usize;
+        }
+
+        for lv in Iter::all() {
+            assert_eq!(arr[lv], lv as usize);
+
+            for lv in Iter::start_at(lv) {
+                assert_eq!(arr[lv], lv as usize);
+            }
+            for lv in Iter::all().to(lv) {
+                assert_eq!(arr[lv], lv as usize);
+            }
+        }
+
+        for lv in Iter::non_bottom() {
+            assert_eq!(arr[lv], lv as usize);
+        }
     }
 }

@@ -101,7 +101,7 @@ mod test {
     use super::*;
 
     #[test]
-    fn test_mutex() {
+    fn mutex() {
         let mutex = Mutex::new(3);
         assert_eq!(*mutex.lock(), 3);
 

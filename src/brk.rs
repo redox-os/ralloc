@@ -195,7 +195,7 @@ mod test {
     use super::*;
 
     #[test]
-    fn test_ordered() {
+    fn ordered() {
         let brk = lock().canonical_brk(20, 1);
 
         assert!(brk.0 <= brk.1);
@@ -203,7 +203,7 @@ mod test {
     }
 
     #[test]
-    fn test_brk_grow_up() {
+    fn brk_grow_up() {
         unsafe {
             let brk1 = lock().sbrk(5).unwrap();
             let brk2 = lock().sbrk(100).unwrap();
@@ -213,7 +213,7 @@ mod test {
     }
 
     #[test]
-    fn test_brk_right_segment_change() {
+    fn brk_right_segment_change() {
         unsafe {
             let brk1 = lock().sbrk(5).unwrap();
             let brk2 = lock().sbrk(100).unwrap();

@@ -47,7 +47,7 @@ mod test {
     use super::*;
 
     #[test]
-    fn test_distinct() {
+    fn distinct() {
         assert!(get() != get());
         assert!(get() != get());
         assert!(get() != get());

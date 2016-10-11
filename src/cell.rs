@@ -47,7 +47,7 @@ impl<T> MoveCell<T> {
             // This is safe due to the `&mut self`, enforcing the guarantee of uniqueness. This
             // will thus not alias it for the lifetime of that reference.
             &mut *self.inner.get()
-        }
+        })
     }
 }
 
@@ -56,14 +56,14 @@ mod test {
     use super::*;
 
     #[test]
-    fn test_replace() {
+    fn replace() {
         let cell = MoveCell::new(200);
         assert_eq!(cell.replace(300), 200);
         assert_eq!(cell.replace(4), 300);
     }
 
     #[test]
-    fn test_get() {
+    fn get() {
         let mut cell = MoveCell::new(200);
         assert_eq!(*cell.get(), 200);
 

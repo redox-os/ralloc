@@ -216,7 +216,7 @@ mod test {
     use prelude::*;
 
     #[test]
-    fn test_vec() {
+    fn vec() {
         let mut buffer = [b'a'; 32];
         let mut vec = unsafe {
             Vec::from_raw_parts(

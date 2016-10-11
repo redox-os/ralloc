@@ -77,7 +77,7 @@ mod test {
     use core::cell::Cell;
 
     #[test]
-    fn test_init() {
+    fn init() {
         let mut lazy = LazyInit::new(|| 300);
 
         assert_eq!(*lazy.get(), 300);
@@ -86,7 +86,7 @@ mod test {
     }
 
     #[test]
-    fn test_into_inner() {
+    fn into_inner() {
         let mut lazy = LazyInit::new(|| 300);
 
         *lazy.get() = 442;
@@ -94,7 +94,7 @@ mod test {
     }
 
     #[test]
-    fn test_laziness() {
+    fn laziness() {
         let is_called = Cell::new(false);
         let mut lazy = LazyInit::new(|| is_called.set(true));
         assert!(!is_called.get());

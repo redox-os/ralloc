@@ -89,14 +89,14 @@ mod test {
     use cell::MoveCell;
 
     #[test]
-    fn test_tls() {
+    fn tls() {
         tls!(static HELLO: &'static str = "hello");
 
         HELLO.with(|x| assert_eq!(x, "hello"));
     }
 
     #[test]
-    fn test_mutability() {
+    fn mutability() {
         tls!(static HELLO: MoveCell<u32> = MoveCell::new(3));
 
         HELLO.with(|x| assert_eq!(x.replace(4), 3));

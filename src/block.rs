@@ -321,7 +321,7 @@ mod test {
     use prelude::*;
 
     #[test]
-    fn test_array() {
+    fn array() {
         let arr = b"Lorem ipsum dolor sit amet";
         let block = unsafe {
             Block::from_raw_parts(Pointer::new(arr.as_ptr()), arr.len())
@@ -341,7 +341,7 @@ mod test {
     }
 
     #[test]
-    fn test_merge() {
+    fn merge() {
         let arr = b"Lorem ipsum dolor sit amet";
         let block = unsafe {
             Block::from_raw_parts(Pointer::new(arr.as_ptr()), arr.len())
@@ -357,7 +357,7 @@ mod test {
 
     #[test]
     #[should_panic]
-    fn test_oob() {
+    fn oob() {
         let arr = b"lorem";
         let block = unsafe {
             Block::from_raw_parts(Pointer::new(arr.as_ptr()), arr.len())
@@ -368,7 +368,7 @@ mod test {
     }
 
     #[test]
-    fn test_mutate() {
+    fn mutate() {
         let mut arr = [0u8, 2, 0, 0, 255, 255];
 
         let block = unsafe {
@@ -382,7 +382,7 @@ mod test {
     }
 
     #[test]
-    fn test_empty_lr() {
+    fn empty_lr() {
         let arr = b"Lorem ipsum dolor sit amet";
         let block = unsafe {
             Block::from_raw_parts(Pointer::new(arr.as_ptr()), arr.len())

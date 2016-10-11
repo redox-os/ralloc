@@ -219,7 +219,7 @@ mod test {
     use super::*;
 
     #[test]
-    fn test_pointer() {
+    fn pointer() {
         let mut x = [b'a', b'b'];
 
         unsafe {
@@ -239,7 +239,7 @@ mod test {
     }
 
     #[test]
-    fn test_empty() {
+    fn empty() {
         assert_eq!(*Pointer::<u8>::empty() as usize, 1);
     }
 }
