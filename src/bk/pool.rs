@@ -1,8 +1,7 @@
-use prelude::*;
-
 use core::{cmp, mem};
 
 use arena::Arena;
+use bk::search::{self, Search};
 use random;
 
 struct Pool {
@@ -17,9 +16,6 @@ impl Pool {
     /// overshoot, then we repeat on the next level starting at the last non-overshot shortcut from
     /// the previous level.
     ///
-    /// The returned seek contains the shortcutted nodes ("lookback") and other data found while
-    /// searching. This can be used to manipulate the found node/block.
-    ///
     /// # Example
     ///
     /// If we look for 8, we start in the top level and follow until we hit 9.
@@ -30,14 +26,29 @@ impl Pool {
     fn search(&mut self, block: &Block) -> Seek {
         log!(DEBUG, "Searching the block pool for block {:?}...", block);
 
+        // Use `BlockSearcher` for this.
+        self.search_with(search::BlockSearcher {
+            needle: block,
+        }).unwrap()
+        // TODO: Find a way to fix this unwrap.
+    }
+
+    /// Search the block pool with a particular searcher.
+    ///
+    /// The outline of the algorithm is this: We start by shortcutting from the top level until we
+    /// need to refine (which is determined by the serarcher), then we repeat on the next level
+    /// starting at the last refined shortcut from the previous level. At the lowest level, we go
+    /// forward until we find a match.
+    ///
+    /// A "lookback", i.e. the refined nodes of every level is stored in the returned value.
+    fn search_with<S: Search>(&mut self, searcher: S) -> Result<Seek, ()> {
         // We start by an uninitialized value, which we fill out.
         let mut seek = unsafe { mem::uninitialized() };
 
         // Start at the highest (least dense) level.
         let mut iter = self.head.follow_shortcut(lv::Level::max());
-        // Go forward until we overshoot.
-        while let Some(shortcut_taken) = iter.take_while(|x| x < block).last() {
-
+        // Go forward until we can refine (e.g. we overshoot).
+        while let Some(shortcut_taken) = iter.find(|x| searcher.refine(x)) {
             // Decrement the level.
             let lv::Level(lv) = iter.decrement_level();
             log!(INTERNAL, "Going from level {} to level {}.", lv, lv - 1);
@@ -56,17 +67,26 @@ impl Pool {
             }
         }
 
-        // We're now at the bottom layer, in which we will iterate over to find the last element,
-        // below our needle.
-        // FIXME: These unwraps can be eliminated, find an approach which does not significantly
-        // increase CLOC of this function.
-        seek.node = iter.unwrap_node().iter().take_while(|x| x < block).last().unwrap();
+        // We're now at the bottom layer, and we need to find a match by iterating over the nodes
+        // of this layer.
+        if let Some(shortcut) = iter.next() {
+            if let Some(found) = shortcut.node.iter().find(|x| searcher.is_match(x)) {
+                // Set the seek's found node to the first match (as defined by the searcher).
+                seek.node = found;
+            } else {
+                // No match was found, return error.
+                return Err(());
+            }
+        } else {
+            // We reached the end of iterator.
+            return Err(());
+        }
 
         seek.check();
 
         // Everything have been initialized, including all the back look cells (i.e. every level
         // have been visited).
-        seek
+        Ok(seek)
     }
 }
 

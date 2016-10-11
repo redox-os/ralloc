@@ -27,5 +27,6 @@
 
 mod lv;
 mod node;
+mod search;
 mod seek;
 mod shortcut;

@@ -110,20 +110,10 @@ impl<'a> ShortcutIter<'a> {
     /// This will make the iterator skip approximately half of the elements of the previous state
     /// of the iterator.
     #[inline]
-    fn decrement_level(&mut self) -> Level {
+    pub fn decrement_level(&mut self) -> Level {
         let lv = self.lv;
         self.lv -= Level(1);
         lv
-    }
-
-    /// Unwrap the inner node (of the shortcut that the iterator is currently on).
-    ///
-    /// # Panics
-    ///
-    /// This will panic if the iterator is over (i.e. no node is left)
-    #[inline]
-    fn unwrap_node(self) -> &Node {
-        self.shortcut.unwrap().node
     }
 }
 
