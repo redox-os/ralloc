@@ -382,6 +382,20 @@ mod test {
     }
 
     #[test]
+    #[cfg(feature = "security")]
+    fn sec_zero() {
+        let mut arr = [0u8, 2, 0, 0, 255, 255];
+
+        let block = unsafe {
+            Block::from_raw_parts(Pointer::new(&mut arr[0]), Size(6))
+        };
+
+        block.sec_zero();
+
+        assert_eq!(arr, [0, 0, 0, 0, 0, 0]);
+    }
+
+    #[test]
     fn empty_lr() {
         let block = Block::sbrk(Size(26));
 
