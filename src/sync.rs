@@ -98,7 +98,7 @@ unsafe impl<T> Sync for Mutex<T> where T: Send {}
 
 #[cfg(test)]
 mod test {
-    use super::*;
+    use super::Mutex;
 
     #[test]
     fn mutex() {

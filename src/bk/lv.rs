@@ -154,14 +154,14 @@ impl<T> ops::IndexMut<Level> for Array {
 
 #[cfg(test)]
 mod test {
-    use super::*;
+    use super::{self, Level};
 
     #[test]
     fn level_generation_dist() {
         // The number of generated `None`s.
         let mut nones = 0;
         // Occurences of each level.
-        let mut occ = Array::default();
+        let mut occ = lv::Array::default();
         // Simulate tousand level generations.
         for _ in 0..1000 {
             if let Some(lv) = Level::generate() {
@@ -197,15 +197,15 @@ mod test {
 
     #[test]
     fn array_max_index() {
-        assert_eq!(Array::<&str>::default()[Level::max()], "");
-        assert_eq!(Array::<u32>::default()[Level::max()], 0);
-        assert_eq!(&mut Array::<&str>::default()[Level::max()], &mut "");
-        assert_eq!(&mut Array::<u32>::default()[Level::max()], &mut 0);
+        assert_eq!(lv::Array::<&str>::default()[Level::max()], "");
+        assert_eq!(lv::Array::<u32>::default()[Level::max()], 0);
+        assert_eq!(&mut lv::Array::<&str>::default()[Level::max()], &mut "");
+        assert_eq!(&mut lv::Array::<u32>::default()[Level::max()], &mut 0);
     }
 
     #[test]
     fn array_iter() {
-        let mut arr = Array::default();
+        let mut arr = lv::Array::default();
         for lv in Iter::all() {
             arr[lv] = lv as usize;
         }

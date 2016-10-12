@@ -84,8 +84,6 @@ macro_rules! tls {
 
 #[cfg(test)]
 mod test {
-    use super::*;
-
     use cell::MoveCell;
 
     #[test]

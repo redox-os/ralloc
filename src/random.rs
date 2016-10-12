@@ -44,19 +44,19 @@ pub fn get() -> u64 {
 
 #[cfg(test)]
 mod test {
-    use super::*;
+    use super;
 
     #[test]
     fn distinct() {
-        assert!(get() != get());
-        assert!(get() != get());
-        assert!(get() != get());
-        assert!(get() != get());
-        assert!(get() != get());
-        assert!(get() != get());
-        assert!(get() != get());
-        assert!(get() != get());
-        assert!(get() != get());
-        assert!(get() != get());
+        assert_ne!(random::get(), random::get());
+        assert_ne!(random::get(), random::get());
+        assert_ne!(random::get(), random::get());
+        assert_ne!(random::get(), random::get());
+        assert_ne!(random::get(), random::get());
+        assert_ne!(random::get(), random::get());
+        assert_ne!(random::get(), random::get());
+        assert_ne!(random::get(), random::get());
+        assert_ne!(random::get(), random::get());
+        assert_ne!(random::get(), random::get());
     }
 }

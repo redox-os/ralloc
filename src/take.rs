@@ -47,14 +47,14 @@ pub fn replace_with<T, F>(val: &mut T, replace: F)
 
 #[cfg(test)]
 mod test {
-    use super::*;
+    use super;
 
     use core::cell::Cell;
 
     #[test]
     fn replace_with() {
         let mut x = Some("test");
-        replace_with(&mut x, |_| None);
+        take::replace_with(&mut x, |_| None);
         assert!(x.is_none());
     }
 
@@ -62,7 +62,7 @@ mod test {
     fn replace_with_2() {
         let is_called = Cell::new(false);
         let mut x = 2;
-        replace_with(&mut x, |_| {
+        take::replace_with(&mut x, |_| {
             is_called.set(true);
             3
         });
