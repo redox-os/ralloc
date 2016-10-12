@@ -114,7 +114,7 @@ impl Node {
     }
 
     /// Calculate the fat value of a non bottom layer (i.e. level is greater than or equal to one).
-    pub fn calculate_fat_value_non_bottom(&self, lv: shotcut::Level) -> block::Size {
+    pub fn calculate_fat_value_non_bottom(&self, lv: lv::Level) -> block::Size {
         // Since `lv != 0` decrementing will not underflow.
         self.calculate_fat_value(lv, self.shortcuts[lv - 1].follow_shortcut(lv - 1))
     }
@@ -122,7 +122,7 @@ impl Node {
     /// Calculate the fat value of the lowest level.
     pub fn calculate_fat_value_bottom(&self) -> block::Size {
         // We base the new fat value of the lowest layer on the block list.
-        self.calculate_fat_value(Level(0), self.iter());
+        self.calculate_fat_value(lv::Level::min(), self.iter());
     }
 
     /// Check that this structure satisfy its invariants.

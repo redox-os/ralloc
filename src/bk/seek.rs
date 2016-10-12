@@ -306,13 +306,14 @@ impl<'a> Seek<'a> {
         }
 
         // Update the fat values to reflect the new state.
-        for i in self.skips() {
-            if i.fat == self.node.size() {
+        // TODO: This can maybe be done without indexes.
+        for lv in lv::Iter::all() {
+            if self.lookback[lv].shortcuts[lv].fat == self.lookback[lv].block.size() {
                 // Recalculate the fat value.
-                let old_fat = i.fat;
-                i.fat = i.calculate_fat_value(b);
+                let old_fat = self.lookback[lv].shortcuts[lv].fat;
+                self.lookback[lv].shortcuts[lv].fat = i.calculate_fat_value_non_bottom(lv);
 
-                if old_fat == i.fat {
+                if old_fat == self.lookback[lv].fat {
                     // The fat value was unchanged (i.e. there are multiple fat nodes), so we
                     // shortcircuit, because these duplicates will exist in higher layers too (due
                     // to the heap property).
