@@ -194,16 +194,19 @@ fn current_brk() -> Pointer<u8> {
 mod test {
     use super;
 
+    use {block, ptr};
+
     #[test]
     fn ordered() {
-        let brk = brk::lock().canonical_brk(20, 1);
+        let brk = brk::lock().canonical_brk(block::Size(20), ptr::Align(2));
 
         assert!(brk.0 <= brk.1);
         assert!(brk.1 <= brk.2);
+        assert!(brk.1.aligned_to(ptr::Align(2)));
     }
 
     #[test]
-    fn brk_grow_up() {
+    fn grow_up() {
         unsafe {
             let brk1 = brk::lock().sbrk(5).unwrap();
             let brk2 = brk::lock().sbrk(100).unwrap();
@@ -213,14 +216,26 @@ mod test {
     }
 
     #[test]
-    fn brk_right_segment_change() {
+    fn right_segment_change() {
         unsafe {
             let brk1 = brk::lock().sbrk(5).unwrap();
             let brk2 = brk::lock().sbrk(100).unwrap();
 
             assert_eq!(brk1.offset(5), brk2);
-            assert_eq!(brk2.offset(100), current_brk());
-            assert_eq!(brk::lock().sbrk(0), current_brk());
+            assert_eq!(brk2.offset(100), brk::current_brk());
+            assert_eq!(brk::lock().sbrk(0), brk::current_brk());
         }
+    }
+
+    #[test]
+    fn release() {
+        let lock = brk::lock();
+        let (_, _, b) = lock.canonical_brk(block::Size(0), ptr::Align(2));
+        lock.release(b).unwrap();
+        let (_, a, b) = lock.canonical_brk(block::Size(20), ptr::Align(2));
+        let a = lock.release(a).unwrap_err();
+        lock.release(b).unwrap();
+
+        assert_eq!(lock.current_brk(), Pointer::from(a.empty_right()));
     }
 }
