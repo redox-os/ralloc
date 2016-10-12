@@ -13,6 +13,9 @@ struct Seek<'a> {
     /// It is crucial that the backlook is pointers to nodes _before_ the target, not the target
     /// node itself.
     ///
+    /// Hence, the lookback cannot contain a pointer to `self.node` itself. This is an important
+    /// for the correctness of the algorithms.
+    ///
     /// # Example
     ///
     /// Consider if we search for 8. Now, we move on until we overshoot. The node before the
@@ -294,7 +297,7 @@ impl<'a> Seek<'a> {
         self.check();
     }
 
-    fn remove(self) -> Jar<Node> {
+    pub fn remove(self) -> Jar<Node> {
         // Remove the shortcuts that skips the target node (exclude the node from the skip of every
         // level). This is in place to make sure there's no dangling pointers after.
         for (_, skip) in self.node.shortcuts().zip(self.skips()) {
@@ -305,7 +308,25 @@ impl<'a> Seek<'a> {
             skip.next = skip.next.unwrap().next;
         }
 
+        // Note that there is no invaldiated pointers in the lookback, because they can't point to
+        // the removed node, because their respective shortcut have to span it (and it's exclusive
+        // start and inclusive end).
+
         // Update the fat values to reflect the new state.
+        self.recalculate_fat_values();
+
+        // We use the lowest layer in the lookback to use as offset for our search for the node
+        // before `self.node`. We need to find said node to avoid having dangling pointers to
+        // `self.node`.
+        let before_node = self.lookback[0].iter().take_while(|x| x.block < self.node).last();
+        // Remove the next link to skip the current node.
+        before_node.next = self.node.next.take();
+
+        self.node
+    }
+
+    /// Recalculate the fat values after changing
+    fn recalculate_fat_values(&mut self) {
         // TODO: This can maybe be done without indexes.
         for lv in lv::Iter::all() {
             if self.lookback[lv].shortcuts[lv].fat == self.lookback[lv].block.size() {
@@ -329,15 +350,6 @@ impl<'a> Seek<'a> {
                 break;
             }
         }
-
-        // We use the lowest layer in the lookback to use as offset for our search for the node
-        // before `self.node`. We need to find said node to avoid having dangling pointers to
-        // `self.node`.
-        let before_node = self.lookback[0].iter().take_while(|x| x.block < self.node).last();
-        // Remove the next link to skip the current node.
-        before_node.next = self.node.next.take();
-
-        self.node
     }
 
     /// Check this seek.
@@ -362,10 +374,8 @@ impl<'a> Seek<'a> {
                 let next = iter.peek();
 
                 if let Some(cur) = cur {
-                    // Make sure the shortcut doesn't start at the node (this is done by making
-                    // sure the skip and the $n$'th shortcut of the current node are distinct).
-                    assert!(cur.next != self.node.shortcuts[n].next, "The {}'th skip starts at \
-                            the target node.");
+                    // Make sure the pointer isn't an alias of `self.node`.
+                    assert!(cur != self.node, "The {}'th skip starts at the target node.");
 
                     if let Some(next) = next {
                         // The fat value satisfy the heap property, and thus must be ordered as such.
