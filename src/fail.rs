@@ -84,7 +84,7 @@ pub fn set_thread_oom_handler(handler: fn() -> !) {
 
 #[cfg(test)]
 mod test {
-    use super::*;
+    use super;
 
     #[test]
     #[should_panic]
@@ -93,8 +93,8 @@ mod test {
             panic!("cats are not cute.");
         }
 
-        set_oom_handler(panic);
-        oom();
+        fail::set_oom_handler(panic);
+        fail::oom();
     }
 
     #[test]
@@ -109,8 +109,8 @@ mod test {
             panic!("cats are not cute.");
         }
 
-        set_oom_handler(infinite);
-        set_thread_oom_handler(panic);
-        oom();
+        fail::set_oom_handler(infinite);
+        fail::set_thread_oom_handler(panic);
+        fail::oom();
     }
 }

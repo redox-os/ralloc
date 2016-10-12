@@ -5,6 +5,9 @@ use prelude::*;
 use core::nonzero::NonZero;
 use core::{ops, marker, mem};
 
+// Derive the align newtype.
+usize_newtype!(pub Align);
+
 /// A pointer wrapper type.
 ///
 /// A wrapper around a raw non-null `*mut T` that indicates that the possessor of this wrapper owns
@@ -88,7 +91,7 @@ impl<T> Pointer<T> {
 
     /// Is this pointer aligned to `align`?
     #[inline]
-    pub fn aligned_to(&self, align: usize) -> bool {
+    pub fn aligned_to(&self, align: Align) -> bool {
         *self.ptr as usize % align == 0
     }
 }
@@ -224,7 +227,7 @@ impl<T: Leak> Drop for Jar<T> {
 
 #[cfg(test)]
 mod test {
-    use super::*;
+    use super::{self, Pointer};
 
     #[test]
     fn pointer() {
@@ -249,5 +252,13 @@ mod test {
     #[test]
     fn empty() {
         assert_eq!(*Pointer::<u8>::empty() as usize, 1);
+    }
+
+    #[test]
+    fn aligned_to() {
+        let mut int = 34u16;
+        assert!(Pointer::from(&mut int).aligned_to(ptr::Align(2)));
+        let mut int = 34u32;
+        assert!(Pointer::from(&mut int).aligned_to(ptr::Align(4)));
     }
 }

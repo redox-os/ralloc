@@ -53,7 +53,7 @@ impl<T> MoveCell<T> {
 
 #[cfg(test)]
 mod test {
-    use super::*;
+    use super::MoveCell;
 
     #[test]
     fn replace() {

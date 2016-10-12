@@ -192,11 +192,11 @@ fn current_brk() -> Pointer<u8> {
 
 #[cfg(test)]
 mod test {
-    use super::*;
+    use super;
 
     #[test]
     fn ordered() {
-        let brk = lock().canonical_brk(20, 1);
+        let brk = brk::lock().canonical_brk(20, 1);
 
         assert!(brk.0 <= brk.1);
         assert!(brk.1 <= brk.2);
@@ -205,8 +205,8 @@ mod test {
     #[test]
     fn brk_grow_up() {
         unsafe {
-            let brk1 = lock().sbrk(5).unwrap();
-            let brk2 = lock().sbrk(100).unwrap();
+            let brk1 = brk::lock().sbrk(5).unwrap();
+            let brk2 = brk::lock().sbrk(100).unwrap();
 
             assert!(*brk1 < *brk2);
         }
@@ -215,12 +215,12 @@ mod test {
     #[test]
     fn brk_right_segment_change() {
         unsafe {
-            let brk1 = lock().sbrk(5).unwrap();
-            let brk2 = lock().sbrk(100).unwrap();
+            let brk1 = brk::lock().sbrk(5).unwrap();
+            let brk2 = brk::lock().sbrk(100).unwrap();
 
             assert_eq!(brk1.offset(5), brk2);
             assert_eq!(brk2.offset(100), current_brk());
-            assert_eq!(lock().sbrk(0), current_brk());
+            assert_eq!(brk::lock().sbrk(0), current_brk());
         }
     }
 }

@@ -72,7 +72,7 @@ impl<F: FnMut() -> T, T> LazyInit<F, T> {
 
 #[cfg(test)]
 mod test {
-    use super::*;
+    use super::LazyInit;
 
     use core::cell::Cell;
 

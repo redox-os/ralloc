@@ -9,6 +9,7 @@ use core::{ptr, cmp, mem, fmt};
 
 use ptr;
 
+// Derive the size newtype.
 usize_newtype!(pub Size);
 
 /// A contiguous memory block.
@@ -316,7 +317,7 @@ impl Drop for Block {
 
 #[cfg(test)]
 mod test {
-    use super::*;
+    use super::Block;
 
     use brk;
 
