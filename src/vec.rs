@@ -85,7 +85,6 @@ impl<T: Leak> Vec<T> {
     ///
     /// On success, return `Ok(())`. On failure (not enough capacity), return `Err(())`.
     #[inline]
-    #[allow(cast_possible_wrap)]
     pub fn push(&mut self, elem: T) -> Result<(), ()> {
         if self.len == self.cap {
             Err(())

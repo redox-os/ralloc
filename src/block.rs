@@ -3,8 +3,6 @@
 //! Blocks are the main unit for the memory bookkeeping. A block is a simple construct with a
 //! `Pointer` pointer and a size. Occupied (non-free) blocks are represented by a zero-sized block.
 
-// TODO: Check the allow(cast_possible_wrap)s again.
-
 use prelude::*;
 
 use core::{ptr, cmp, mem, fmt};
@@ -66,7 +64,6 @@ impl Block {
 
     /// Create an empty block representing the right edge of this block.
     #[inline]
-    #[allow(cast_possible_wrap)]
     pub fn empty_right(&self) -> Block {
         Block {
             size: 0,
@@ -106,6 +103,7 @@ impl Block {
     }
 
     /// Get the size of the block.
+    #[inline]
     pub fn size(&self) -> Size {
         self.size
     }
@@ -180,7 +178,6 @@ impl Block {
     ///
     /// Panics if `pos` is out of bound.
     #[inline]
-    #[allow(cast_possible_wrap)]
     pub fn split(self, pos: Size) -> (Block, Block) {
         assert!(pos <= self.size, "Split {} out of bound (size is {})!", pos, self.size);
 
@@ -204,10 +201,11 @@ impl Block {
 
     /// Split this block, such that the second block is aligned to `align`.
     ///
-    /// Returns an `None` holding the intact block if `align` is out of bounds.
+    /// Returns an `None` holding the intact block if `align` is out of bounds. If not
+    /// out-of-bounds, `self`'s size is set to zero and a tuple of two blocks (a precursor, which
+    /// is there to keep the block aligned, and the block itself, respectively).
     #[inline]
-    #[allow(cast_possible_wrap)]
-    pub fn align(&mut self, align: ptr::Align) -> Option<(Block, Block)> {
+    pub fn align(&mut self, align: ptr::Align) -> Result<(Block, Block), ()> {
         log!(INTERNAL, "Padding {:?} to align {}", self, align);
 
         // FIXME: This functions suffers from external fragmentation. Leaving bigger segments might
@@ -318,14 +316,22 @@ impl Drop for Block {
 
 #[cfg(test)]
 mod test {
-    use prelude::*;
+    use super::*;
+
+    use brk;
+
+    /// Implementation we will use for testing.
+    impl Block {
+        /// Create a new block by extending the program break.
+        #[cfg(test)]
+        pub fn sbrk(size: Size) -> Block {
+            Block::from_raw_parts(brk::lock().sbrk(size.try_into()).unwrap(), size)
+        }
+    }
 
     #[test]
     fn array() {
-        let arr = b"Lorem ipsum dolor sit amet";
-        let block = unsafe {
-            Block::from_raw_parts(Pointer::new(arr.as_ptr()), arr.len())
-        };
+        let block = Block::sbrk(26);
 
         // Test split.
         let (mut lorem, mut rest) = block.split(5);
@@ -342,10 +348,7 @@ mod test {
 
     #[test]
     fn merge() {
-        let arr = b"Lorem ipsum dolor sit amet";
-        let block = unsafe {
-            Block::from_raw_parts(Pointer::new(arr.as_ptr()), arr.len())
-        };
+        let block = Block::sbrk(26);
 
         let (mut lorem, mut rest) = block.split(5);
         lorem.merge_right(&mut rest).unwrap();
@@ -358,13 +361,8 @@ mod test {
     #[test]
     #[should_panic]
     fn oob() {
-        let arr = b"lorem";
-        let block = unsafe {
-            Block::from_raw_parts(Pointer::new(arr.as_ptr()), arr.len())
-        };
-
         // Test OOB.
-        block.split(6);
+        Block::sbrk(5).split(6);
     }
 
     #[test]
@@ -383,10 +381,7 @@ mod test {
 
     #[test]
     fn empty_lr() {
-        let arr = b"Lorem ipsum dolor sit amet";
-        let block = unsafe {
-            Block::from_raw_parts(Pointer::new(arr.as_ptr()), arr.len())
-        };
+        let block = Block::sbrk(26);
 
         assert!(block.empty_left().is_empty());
         assert!(block.empty_right().is_empty());
