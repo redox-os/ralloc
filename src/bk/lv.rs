@@ -47,12 +47,12 @@ impl Level {
     }
 
     #[inline]
-    pub fn above(self) -> Option<Level> {
+    pub fn above(self) -> Option<NonBottomLevel> {
         // TODO: Find a way to eliminate this branch.
         if self == Level::max() {
             None
         } else {
-            Some(Level(self.0 + 1))
+            Some(NonBottomLevel(self.0 + 1))
         }
     }
 
@@ -75,8 +75,29 @@ impl Level {
 }
 
 impl Into<usize> for Level {
+    #[inline]
     fn into(self) -> usize {
         self.0
+    }
+}
+
+/// A non-bottom level.
+///
+/// This newtype holds the invariant that the contained level is greater than zero (bottom level).
+pub struct NonBottomLevel(Level);
+
+impl NonBottomLevel {
+    #[inline]
+    pub fn below(self) -> Level {
+        // We can safely do this, because `self.0.0` is never zero.
+        Level(self.0.0 - 1)
+    }
+}
+
+impl From<NonBottomLevel> for Level {
+    #[inline]
+    fn from(from: NonBottomLevel) -> Level {
+        Level(from.0)
     }
 }
 
@@ -114,6 +135,7 @@ impl Iter {
 impl Iterator for LevelIter {
     type Item = Level;
 
+    #[inline]
     fn next(&mut self) -> Option<Level> {
         if self.lv <= self.to {
             let ret = self.n;
@@ -154,7 +176,7 @@ impl<T> ops::IndexMut<Level> for Array {
 
 #[cfg(test)]
 mod test {
-    use super::{self, Level};
+    use super;
 
     #[test]
     fn level_generation_dist() {
@@ -164,7 +186,7 @@ mod test {
         let mut occ = lv::Array::default();
         // Simulate tousand level generations.
         for _ in 0..1000 {
-            if let Some(lv) = Level::generate() {
+            if let Some(lv) = lv::Level::generate() {
                 // Increment the occurence counter.
                 occ[lv] += 1;
             } else {
@@ -177,7 +199,7 @@ mod test {
         assert!((490..510).contains(nones));
 
         let mut expected = 250;
-        for lv in Iter::all() {
+        for lv in lv::Iter::all() {
             // Ensure that the occurences of `lv` is within the expected margin.
             assert!((expected - 10..expected + 10).contains(occ[lv]));
         }
@@ -185,44 +207,52 @@ mod test {
 
     #[test]
     fn above() {
-        assert_eq!(Level::max().above(), None);
-        assert_eq!(Level::min().above().unwrap() as usize, 1);
+        assert_eq!(lv::Level::max().above(), None);
+        assert_eq!(lv::Level::min().above().unwrap() as usize, 1);
     }
 
     #[test]
     fn iter() {
-        assert!(Iter::all().eq(0..Level::max() as usize));
-        assert!(Iter::non_bottom().eq(1..Level::max() as usize));
+        assert!(lv::Iter::all().eq(0..lv::Level::max() as usize));
+        assert!(lv::Iter::non_bottom().eq(1..lv::Level::max() as usize));
     }
 
     #[test]
     fn array_max_index() {
-        assert_eq!(lv::Array::<&str>::default()[Level::max()], "");
-        assert_eq!(lv::Array::<u32>::default()[Level::max()], 0);
-        assert_eq!(&mut lv::Array::<&str>::default()[Level::max()], &mut "");
-        assert_eq!(&mut lv::Array::<u32>::default()[Level::max()], &mut 0);
+        assert_eq!(lv::Array::<&str>::default()[lv::Level::max()], "");
+        assert_eq!(lv::Array::<u32>::default()[lv::Level::max()], 0);
+        assert_eq!(&mut lv::Array::<&str>::default()[lv::Level::max()], &mut "");
+        assert_eq!(&mut lv::Array::<u32>::default()[lv::Level::max()], &mut 0);
     }
 
     #[test]
     fn array_iter() {
         let mut arr = lv::Array::default();
-        for lv in Iter::all() {
+        for lv in lv::Iter::all() {
             arr[lv] = lv as usize;
         }
 
-        for lv in Iter::all() {
+        for lv in lv::Iter::all() {
             assert_eq!(arr[lv], lv as usize);
 
-            for lv in Iter::start_at(lv) {
+            for lv in lv::Iter::start_at(lv) {
                 assert_eq!(arr[lv], lv as usize);
             }
-            for lv in Iter::all().to(lv) {
+            for lv in lv::Iter::all().to(lv) {
                 assert_eq!(arr[lv], lv as usize);
             }
         }
 
-        for lv in Iter::non_bottom() {
+        for lv in lv::Iter::non_bottom() {
             assert_eq!(arr[lv], lv as usize);
         }
+    }
+
+    #[test]
+    fn non_bottom_below() {
+        let above: lv::NonBottomLevel = lv::Level::min().above().unwrap();
+        let lv: lv::Level = above.below();
+
+        assert_eq!(lv, lv::Level::min());
     }
 }

@@ -113,10 +113,10 @@ impl Node {
         new_fat
     }
 
-    /// Calculate the fat value of a non bottom layer (i.e. level is greater than or equal to one).
-    pub fn calculate_fat_value_non_bottom(&self, lv: lv::Level) -> block::Size {
+    /// Calculate the fat value of a non bottom layer.
+    pub fn calculate_fat_value_non_bottom(&self, lv: lv::NonBottomLevel) -> block::Size {
         // Since `lv != 0` decrementing will not underflow.
-        self.calculate_fat_value(lv, self.shortcuts[lv - 1].follow_shortcut(lv - 1))
+        self.calculate_fat_value(lv, self.shortcuts[lv.below()].follow_shortcut(lv.below()))
     }
 
     /// Calculate the fat value of the lowest level.
@@ -159,7 +159,7 @@ impl Node {
                     fat value does not match the calculated fat value.");
 
             // Check the fat values of the non bottom level.
-            for lv in lv::level_iter().skip(1) {
+            for lv in lv::Iter::non_bottom() {
                 assert!(self.shortcuts[lv.into()].fat == self.calculate_fat_value_non_bottom(lv), "The \
                         bottom layer's fat value does not match the calculated fat value.");
             }
@@ -167,7 +167,7 @@ impl Node {
             // Check that the shortcut refers to a node with appropriate (equal to or greater)
             // height.
             // FIXME: Fold this loop to the one above.
-            for lv in lv::level_iter() {
+            for lv in lv::Iter::all() {
                 assert!(!self.shortcuts[lv.into()].next.shortcuts[lv.into()].is_null(), "Shortcut \
                         points to a node with a lower height. Is this a dangling pointer?");
             }
