@@ -99,6 +99,14 @@ impl<T> Default for Pointer<T> {
     }
 }
 
+impl<'a, T> From<&'a mut T> for Pointer<T> {
+    fn from(from: &mut T) -> Pointer<T> {
+        unsafe {
+            Pointer::new(from)
+        }
+    }
+}
+
 unsafe impl<T: Send> Send for Pointer<T> {}
 unsafe impl<T: Sync> Sync for Pointer<T> {}
 

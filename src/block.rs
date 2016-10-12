@@ -331,13 +331,14 @@ mod test {
 
     #[test]
     fn array() {
-        let block = Block::sbrk(26);
+        let block = Block::sbrk(Size(26));
 
         // Test split.
-        let (mut lorem, mut rest) = block.split(5);
+        let (mut lorem, mut rest) = block.split(Size(5));
         assert_eq!(lorem.size(), 5);
-        assert_eq!(lorem.size() + rest.size(), arr.len());
+        assert_eq!(lorem.size() + rest.size(), Size(26));
         assert!(lorem < rest);
+        assert!(lorem.left_to(&rest));
 
         assert_eq!(lorem, lorem);
         assert!(!rest.is_empty());
@@ -350,7 +351,7 @@ mod test {
     fn merge() {
         let block = Block::sbrk(26);
 
-        let (mut lorem, mut rest) = block.split(5);
+        let (mut lorem, mut rest) = block.split(Size(5));
         lorem.merge_right(&mut rest).unwrap();
 
         let mut tmp = rest.split(0).0;
@@ -370,22 +371,30 @@ mod test {
         let mut arr = [0u8, 2, 0, 0, 255, 255];
 
         let block = unsafe {
-            Block::from_raw_parts(Pointer::new(&mut arr[0]), 6)
+            Block::from_raw_parts(Pointer::new(&mut arr[0]), Size(6))
         };
 
-        let (a, mut b) = block.split(2);
+        let (a, mut b) = block.split(Size(2));
         a.copy_to(&mut b);
+        assert_eq!(a.size(), Size(2));
 
         assert_eq!(arr, [0, 2, 0, 2, 255, 255]);
     }
 
     #[test]
     fn empty_lr() {
-        let block = Block::sbrk(26);
+        let block = Block::sbrk(Size(26));
 
         assert!(block.empty_left().is_empty());
         assert!(block.empty_right().is_empty());
         assert_eq!(*Pointer::from(block.empty_left()), arr.as_ptr());
         assert_eq!(block.empty_right(), block.split(arr.len()).1);
+    }
+
+    #[test]
+    fn empty() {
+        let mut x = 3;
+        assert!(Block::empty(Pointer::from(&mut x)).is_emty());
+        assert_eq!(Block::empty(Pointer::from(&mut x)).size(), Size(0));
     }
 }
