@@ -161,6 +161,12 @@ impl Block {
     }
 
     /// Is this block placed left to the given other block?
+    ///
+    /// This really asked two things, both of which must be true for this function to return
+    /// `true`:
+    ///
+    /// 1. `self` and `to` are adjacent.
+    /// 2. `to` is greater than or equal to `self`.
     #[inline]
     pub fn left_to(&self, to: &Block) -> bool {
         // Warn about potential confusion of `self` and `to` and other similar bugs.
@@ -169,8 +175,17 @@ impl Block {
                  used?", self, to);
         }
 
-        // This won't overflow due to the end being bounded by the address space.
-        self.size + *self.ptr as usize == *to.ptr as usize
+        // We empty right, so we get:
+        //     |--------| self
+        //              | self.empty_right()
+        // If it is indeed left to, it would look like:
+        //              |-------| to
+        // Clearly they're equal (note that the pointer is compared, not the size). If the
+        // configuration however looks like:
+        //                  |------| to
+        // Then they're not equal. Hence we can use `==` (`PartialEq`) and `empty_right` to find
+        // out if they are indeed left to each other.
+        self.empty_right() == to
     }
 
     /// Split the block at some position.
@@ -305,7 +320,7 @@ impl cmp::Eq for Block {}
 
 impl fmt::Debug for Block {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "0x{:x}[{}]", *self.ptr as usize, self.size)
+        write!(f, "{:?}[{}]", self.ptr, self.size)
     }
 }
 
@@ -331,33 +346,72 @@ mod test {
     }
 
     #[test]
-    fn array() {
+    fn split() {
         let block = Block::sbrk(Size(26));
 
-        // Test split.
-        let (mut lorem, mut rest) = block.split(Size(5));
-        assert_eq!(lorem.size(), 5);
-        assert_eq!(lorem.size() + rest.size(), Size(26));
-        assert!(lorem < rest);
-        assert!(lorem.left_to(&rest));
+        let (mut block, mut rest) = block.split(Size(5));
 
-        assert_eq!(lorem, lorem);
+        assert_eq!(block.size(), 5);
+        assert_eq!(block.size() + rest.size(), Size(26));
+        assert!(block < rest);
+        assert!(block.left_to(&rest));
+        assert!(!rest.left_to(&block));
+        assert_eq!(block, block);
         assert!(!rest.is_empty());
-        assert!(lorem.align(2).unwrap().1.aligned_to(2));
+        assert_eq!(*Pointer::from(block) as usize + 5, *Pointer::from(rest) as usize);
+    }
+
+    #[test]
+    fn align() {
+        let block1 = Block::sbrk(Size(26));
+        let block2 = Block::sbrk(Size(100));
+
+        assert!(block.align(2).unwrap().1.aligned_to(2));
         assert!(rest.align(15).unwrap().1.aligned_to(15));
-        assert_eq!(*Pointer::from(lorem) as usize + 5, *Pointer::from(rest) as usize);
+        rest.align(200).unwrap_err();
+    }
+
+    #[test]
+    fn empty_eq() {
+        let block = Block::sbrk(Size(10));
+
+        assert_eq!(block, block);
+        assert_eq!(block.empty_left(), block);
+        assert_ne!(block.empty_right(), block);
+    }
+
+    #[test]
+    fn empty_ord() {
+        let a = Block::sbrk(Size(10));
+        let b = Block::sbrk(Size(14));
+        let c = Block::sbrk(Size(120));
+
+        assert!(a < b);
+        assert!(b < c);
+        assert!(a < c);
+
+        assert!(b > a);
+        assert!(c > b);
+        assert!(c > a);
+
+        assert!(!(a < a));
+        assert!(!(b < b));
+        assert!(!(c < c));
+        assert!(!(a > a));
+        assert!(!(b > b));
+        assert!(!(c > c));
     }
 
     #[test]
     fn merge() {
         let block = Block::sbrk(26);
 
-        let (mut lorem, mut rest) = block.split(Size(5));
-        lorem.merge_right(&mut rest).unwrap();
+        let (mut block, mut rest) = block.split(Size(5));
+        block.merge_right(&mut rest).unwrap();
 
         let mut tmp = rest.split(0).0;
         assert!(tmp.is_empty());
-        lorem.split(2).0.merge_right(&mut tmp).unwrap();
+        block.split(2).0.merge_right(&mut tmp).unwrap();
     }
 
     #[test]

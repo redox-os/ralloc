@@ -1,9 +1,7 @@
 //! Pointer wrappers.
 
-use prelude::*;
-
 use core::nonzero::NonZero;
-use core::{ops, marker, mem};
+use core::{ops, marker, mem, fmt};
 
 // Derive the align newtype.
 usize_newtype!(pub Align);
@@ -92,7 +90,7 @@ impl<T> Pointer<T> {
     /// Is this pointer aligned to `align`?
     #[inline]
     pub fn aligned_to(&self, align: Align) -> bool {
-        *self.ptr as usize % align == 0
+        *self as usize % align == 0
     }
 }
 
@@ -110,8 +108,11 @@ impl<'a, T> From<&'a mut T> for Pointer<T> {
     }
 }
 
-unsafe impl<T: Send> Send for Pointer<T> {}
-unsafe impl<T: Sync> Sync for Pointer<T> {}
+impl fmt::Debug for Block {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "0x{:x}", *self as usize)
+    }
+}
 
 impl<T> ops::Deref for Pointer<T> {
     type Target = *mut T;
@@ -121,6 +122,9 @@ impl<T> ops::Deref for Pointer<T> {
         &self.ptr
     }
 }
+
+unsafe impl<T: Send> Send for Pointer<T> {}
+unsafe impl<T: Sync> Sync for Pointer<T> {}
 
 /// A safe, owning pointer (container).
 ///
