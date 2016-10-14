@@ -84,7 +84,7 @@ macro_rules! tls {
 
 #[cfg(test)]
 mod test {
-    use cell::MoveCell;
+    use core::cell::Cell;
 
     #[test]
     fn tls() {
@@ -95,12 +95,16 @@ mod test {
 
     #[test]
     fn mutability() {
-        tls!(static HELLO: MoveCell<u32> = MoveCell::new(3));
+        tls!(static HELLO: Cell<u32> = Cell::new(3));
 
-        HELLO.with(|x| assert_eq!(x.replace(4), 3));
-        HELLO.with(|x| assert_eq!(x.replace(5), 4));
-        HELLO.with(|x| assert_eq!(x.replace(10), 5));
-        HELLO.with(|x| assert_eq!(x.replace(0), 10));
-        HELLO.with(|x| assert_eq!(x.replace(0), 0));
+        HELLO.with(|x| assert_eq!(x.get(), 3));
+        HELLO.with(|x| x.set(4));
+        HELLO.with(|x| assert_eq!(x.get(), 4));
+        HELLO.with(|x| x.set(5));
+        HELLO.with(|x| assert_eq!(x.get(), 5));
+        HELLO.with(|x| x.set(10));
+        HELLO.with(|x| assert_eq!(x.get(), 10));
+        HELLO.with(|x| x.set(0));
+        HELLO.with(|x| assert_eq!(x.get(), 0));
     }
 }

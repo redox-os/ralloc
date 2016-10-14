@@ -2,8 +2,7 @@
 //!
 //! This contains primitives for the cross-thread allocator.
 
-use prelude::*;
-
+use core::cell::RefCell;
 use core::mem;
 
 use {brk, sync};
@@ -15,8 +14,10 @@ use shim::config;
 use tls;
 
 /// Alias for the wrapper type of the thread-local variable holding the local allocator.
+// FIXME: Replace RefCell with a 2-state primitive (used and not used). Ideally, the mutual
+//        exclusion should be statically ensured (see RFC #1106).
 #[cfg(feature = "tls")]
-type ThreadLocalAllocator = MoveCell<Option<LazyInit<fn() -> LocalAllocator, LocalAllocator>>>;
+type ThreadLocalAllocator = RefCell<Option<LazyInit<fn() -> LocalAllocator, LocalAllocator>>>;
 
 /// The global default allocator.
 // TODO: Remove these filthy function pointers.
@@ -25,7 +26,7 @@ static GLOBAL_ALLOCATOR: sync::Mutex<LazyInit<fn() -> GlobalAllocator, GlobalAll
 #[cfg(feature = "tls")]
 tls! {
     /// The thread-local allocator.
-    static THREAD_ALLOCATOR: ThreadLocalAllocator = MoveCell::new(Some(LazyInit::new(LocalAllocator::init)));
+    static THREAD_ALLOCATOR: ThreadLocalAllocator = RefCell::new(Some(LazyInit::new(LocalAllocator::init)));
 }
 
 /// Temporarily get the allocator.
@@ -42,22 +43,21 @@ tls! {
 //       it run after the TLS keys that might be declared.
 macro_rules! get_allocator {
     (|$v:ident| $b:expr) => {{
-        // Get the thread allocator, if TLS is enabled
+        // Get the thread allocator, if TLS is enabled.
         #[cfg(feature = "tls")]
         {
             THREAD_ALLOCATOR.with(|thread_alloc| {
-                if let Some(mut thread_alloc_original) = thread_alloc.replace(None) {
+                if let Ok(mut thread_alloc_original) = thread_alloc.try_borrow_mut() {
                     let ret = {
                         // Call the closure involved.
                         let $v = thread_alloc_original.get();
                         $b
                     };
 
-                    // Put back the original allocator.
-                    thread_alloc.replace(Some(thread_alloc_original));
-
                     ret
                 } else {
+                    // TODO: Test if this fallback can be removed.
+
                     // The local allocator seems to have been deinitialized, for this reason we fallback to
                     // the global allocator.
                     log!(WARNING, "Accessing the allocator after deinitialization of the local allocator.");

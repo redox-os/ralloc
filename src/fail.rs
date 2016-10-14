@@ -1,9 +1,8 @@
 //! General error handling.
 
-use prelude::*;
-
-use core::sync::atomic::{self, AtomicPtr};
+use core::cell::Cell;
 use core::mem;
+use core::sync::atomic::{self, AtomicPtr};
 
 use shim::config;
 
@@ -15,7 +14,7 @@ static OOM_HANDLER: AtomicPtr<()> = AtomicPtr::new(config::default_oom_handler a
 #[cfg(feature = "tls")]
 tls! {
     /// The thread-local OOM handler.
-    static THREAD_OOM_HANDLER: MoveCell<Option<fn() -> !>> = MoveCell::new(None);
+    static THREAD_OOM_HANDLER: Cell<Option<fn() -> !>> = Cell::new(None);
 }
 
 /// Call the OOM handler.
@@ -34,7 +33,7 @@ pub fn oom() -> ! {
     // If TLS is enabled, we will use the thread-local OOM.
     #[cfg(feature = "tls")]
     {
-        if let Some(handler) = THREAD_OOM_HANDLER.with(|x| x.replace(None)) {
+        if let Some(handler) = THREAD_OOM_HANDLER.with(|x| x.get()) {
             log!(DEBUG, "Calling the local OOM handler.");
 
             handler();
@@ -73,12 +72,9 @@ pub fn set_thread_oom_handler(handler: fn() -> !) {
 
     THREAD_OOM_HANDLER.with(|thread_oom| {
         // Replace it with the new handler.
-        let old = thread_oom.replace(Some(handler));
+        thread_oom.set(Some(handler));
 
-        // Throw a warning if it overrides another handler.
-        if old.is_some() {
-            log!(WARNING, "An old thread OOM handler was overriden.");
-        }
+        // TODO: Bring back the overwrite check (i.e. warn when overwriting the handler).
     });
 }
 

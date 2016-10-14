@@ -7,6 +7,8 @@ use core::{mem, intrinsics};
 /// A guarding type which will exit upon drop.
 ///
 /// This is used for catching unwinding and transforming it into abort.
+///
+/// The destructor should never be called naturally (use `mem::forget()`), and only when unwinding.
 struct ExitGuard;
 
 impl Drop for ExitGuard {
@@ -41,7 +43,7 @@ pub fn replace_with<T, F>(val: &mut T, replace: F)
         ptr::write(val, new);
     }
 
-    // Drop the guard.
+    // Forget the guard.
     mem::forget(guard);
 }
 

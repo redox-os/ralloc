@@ -44,7 +44,6 @@ mod arena;
 mod bk;
 mod block;
 mod brk;
-mod cell;
 mod fail;
 mod lazy_init;
 mod leak;

@@ -169,7 +169,7 @@ mod test {
     /// Helper method to make an artificial arena.
     fn make<T>() -> Arena<T> {
         let mut arena = Arena::new();
-        arena.provide(brk::lock().sbrk(1024).unwrap());
+        arena.provide(Block::sbrk(826));
 
         arena
     }

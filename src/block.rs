@@ -285,6 +285,12 @@ impl Block {
 
         self
     }
+
+    /// Create a new block by extending the program break.
+    #[cfg(test)]
+    pub fn sbrk(size: Size) -> Block {
+        Block::from_raw_parts(brk::lock().sbrk(size.try_into()).unwrap(), size)
+    }
 }
 
 impl From<Block> for Pointer<u8> {
@@ -335,15 +341,6 @@ mod test {
     use super::Block;
 
     use brk;
-
-    /// Implementation we will use for testing.
-    impl Block {
-        /// Create a new block by extending the program break.
-        #[cfg(test)]
-        pub fn sbrk(size: Size) -> Block {
-            Block::from_raw_parts(brk::lock().sbrk(size.try_into()).unwrap(), size)
-        }
-    }
 
     #[test]
     fn split() {
