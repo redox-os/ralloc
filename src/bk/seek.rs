@@ -77,7 +77,11 @@ impl<'a> Seek<'a> {
     }
 
     fn put(&mut self, block: Block, arena: &mut Arena<Node>) {
+        log!(INTERNAL, "Putting block {:?} into the block pool.", block);
+
         if self.node.block.merge_right(block).is_ok() {
+            log!(INTERNAL, "Merged the block to the left.", block);
+
             // Merge suceeded:
             //               [==block==]
             //     [==self==]            [==rest==]
@@ -96,6 +100,8 @@ impl<'a> Seek<'a> {
         // to the seeked block being strictly less than our target, and thus we go one forward to
         // the next block to see if it is mergable by its left side.
         } else if self.node.next.and_then(|x| block.merge_right(x)).is_ok() {
+            log!(INTERNAL, "Merged the block to the right.", block);
+
             // Merge suceeded:
             //                [==block==]
             //     [==self==]            [==right==]
@@ -110,6 +116,8 @@ impl<'a> Seek<'a> {
             // We need to merge the former block right:
             self.try_merge_right(arena);
         } else {
+            log!(INTERNAL, "Unable to merge. Inserting.");
+
             // We were unabled to merge it with a preexisting block, so we need to insert it
             // instead.
             self.insert_no_merge(block, arena);
@@ -118,6 +126,8 @@ impl<'a> Seek<'a> {
 
     fn try_merge_right(&mut self, arena: &mut Arena<Node>) {
         if self.node.block.merge_right(self.node.next.block).is_ok() {
+            log!(INTERNAL, "Merged node (block :?) right.", self.node.block);
+
             // We merged our node left. This means that the node is simply extended and an empty
             // block will be left right to the node. As such the fat node's size is greater than or
             // equal to the new, merged node's size. So we need not full reevaluation of the fat
@@ -173,6 +183,8 @@ impl<'a> Seek<'a> {
     /// This will simply insert (place) the node after our found node, without merges. The fat
     /// values are updated.
     fn insert_no_merge(&mut self, block: Block, arena: &mut Arena<Node>) {
+        log!(DEBUG, "Inserting (without merge) block {:?} before block {:?}...", block, self.node.block);
+
         take::replace_with(self, |mut seek| {
             // Make sure that there are no adjacent blocks.
             debug_assert!(!self.node.left_to(&block), "Inserting left-adjacent block without \
@@ -298,6 +310,8 @@ impl<'a> Seek<'a> {
     }
 
     pub fn remove(self) -> Jar<Node> {
+        log!(DEBUG, "Removing node from seek...", self.node.block);
+
         // Remove the shortcuts that skips the target node (exclude the node from the skip of every
         // level). This is in place to make sure there's no dangling pointers after.
         for (_, skip) in self.node.shortcuts().zip(self.skips()) {
@@ -322,11 +336,15 @@ impl<'a> Seek<'a> {
         // Remove the next link to skip the current node.
         before_node.next = self.node.next.take();
 
+        log!(DEBUG, "Removed node with block {:?}.", self.node.block);
+
         self.node
     }
 
     /// Recalculate the fat values after changing
     fn recalculate_fat_values(&mut self) {
+        log!(DEBUG, "Recalculating fat values for the lookback.");
+
         // TODO: This can maybe be done without indexes.
         for lv in lv::Iter::all() {
             if self.lookback[lv].shortcuts[lv].fat == self.lookback[lv].block.size() {
@@ -357,6 +375,8 @@ impl<'a> Seek<'a> {
     /// This is NOOP in release mode.
     fn check(&self) {
         if cfg!(debug_assertions) {
+            log!(INTERNAL, "Checking seek...");
+
             // Check the nodes.
             for i in self.node.iter() {
                 i.check();

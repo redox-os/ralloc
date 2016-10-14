@@ -36,7 +36,7 @@ impl Level {
         let height = (random::get() & (1 << LEVELS - 1)).trailing_zeros();
 
         // TODO: Strictly speaking not a node...
-        log!("DEBUG", "Generated node with height {}/{}.", height, LEVELS);
+        log!(DEBUG, "Generated node with height {}/{}.", height, LEVELS);
 
         // TODO: Find a way to eliminate this branch.
         if rand == 0 {
