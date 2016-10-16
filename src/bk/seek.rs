@@ -94,7 +94,7 @@ impl<'a> Seek<'a> {
             // If our configuration now looks like:
             //     [==self=============][==rest==]
             // We need to maximize the former level, so we merge right.
-            if self.try_merge_right(arena).is_ok() { return; }
+            self.try_merge_right(arena);
 
         // Note that we do not merge our block to the seeked block from the left side. This is due
         // to the seeked block being strictly less than our target, and thus we go one forward to
@@ -185,126 +185,122 @@ impl<'a> Seek<'a> {
     fn insert_no_merge(&mut self, block: Block, arena: &mut Arena<Node>) {
         log!(DEBUG, "Inserting (without merge) block {:?} before block {:?}...", block, self.node.block);
 
-        take::replace_with(self, |mut seek| {
-            // Make sure that there are no adjacent blocks.
-            debug_assert!(!self.node.left_to(&block), "Inserting left-adjacent block without \
-                          merge.");
-            debug_assert!(!self.node.next.map_or(false, |x| x.left_to(&block)), "Inserting \
-                          right-adjacent block without merge.");
-            // Check that we're inserting at a fitting position, such that the list is kept sorted.
-            debug_assert!(self.node.block < block, "Inserting at a wrong position.");
+        // Make sure that there are no adjacent blocks.
+        debug_assert!(!self.node.left_to(&block), "Inserting left-adjacent block without \
+                      merge.");
+        debug_assert!(!self.node.next.map_or(false, |x| x.left_to(&block)), "Inserting \
+                      right-adjacent block without merge.");
+        // Check that we're inserting at a fitting position, such that the list is kept sorted.
+        debug_assert!(self.node.block < block, "Inserting at a wrong position.");
 
-            // Put the old node behind the new node holding block.
-            seek.node.insert(arena.alloc(Node {
-                block: block,
-                // Place-holder.
-                shortcuts: Default::default(),
-                next: None,
-            }));
+        // Put the old node behind the new node holding block.
+        self.node.insert(arena.alloc(Node {
+            block: block,
+            // Place-holder.
+            shortcuts: Default::default(),
+            next: None,
+        }));
 
-            // Generate the maximum level of the new node's shortcuts.
-            if let Some(max_lv) = lv::Level::generate() {
-                // If we actually have a bottom layer (i.e. the generated level is higher than zero),
-                // we obviously need to update its fat values based on the main list.
-                // FIXME: This code is copied from the loop below. Find a way to avoid repeating.
-                // Place the node into the bottom shortcut.
-                self.insert_shortcut(lv::Level::min());
+        // Generate the maximum level of the new node's shortcuts.
+        if let Some(max_lv) = lv::Level::generate() {
+            // If we actually have a bottom layer (i.e. the generated level is higher than zero),
+            // we obviously need to update its fat values based on the main list.
+            // FIXME: This code is copied from the loop below. Find a way to avoid repeating.
+            // Place the node into the bottom shortcut.
+            self.insert_shortcut(lv::Level::min());
 
-                // For details how this works, see the loop below. This is really just taken from
-                // the iteration from that to reflect the special structure of the block list.
+            // For details how this works, see the loop below. This is really just taken from
+            // the iteration from that to reflect the special structure of the block list.
 
-                // Calculate the fat value of the bottom layer.
-                let new_fat = seek.node.calculate_fat_value_bottom();
+            // Calculate the fat value of the bottom layer.
+            let new_fat = self.node.calculate_fat_value_bottom();
 
-                let skip = &mut seek.get_skip(lv::Level::min());
+            let skip = &mut self.get_skip(lv::Level::min());
+            if new_fat == skip.fat {
+                if let Some(next) = skip.next {
+                    next.fat = next.calculate_fat_value_bottom();
+                }
+            } else {
+                skip.node.shortcuts[0].increase_fat(mem::replace(&mut skip.fat, new_fat));
+            }
+
+            // Place new shortcuts up to this level.
+            for lv in lv::Iter::non_bottom().to(max_lv) {
+                // Place the node inbetween the shortcuts.
+                self.insert_shortcut(lv);
+
+                // The configuration (at level `lv`) should now look like:
+                //     [self.node] --> [old self.node] --> [old shortcut]
+
+                // Since we inserted a new shortcut here, we might have invalidated the old fat
+                // value, so we need to recompute the fat value. Fortunately, since we go from
+                // densest to opaquer layer, we can base the fat value on the values of the
+                // previous layer.
+
+                // An example state could look like this: Assume we go from this configuration:
+                //     [a] -y----------> [b] ---> ...
+                //     [a] -x----------> [b] ---> ...
+                //     ...
+                // To this:
+                //     [a] -y'---------> [b] ---> ...
+                //     [a] -p-> [n] -q-> [b] ---> ...
+                //     ...
+                // Here, you cannot express _p_ and _q_ in terms  of _x_ and _y_. Instead, we need
+                // to compute them from the layer below.
+                let new_fat = self.node.calculate_fat_value_non_bottom(lv);
+
+                // You have been visitied by the silly ferris.
+                //      ()    ()
+                //       \/\/\/
+                //       &_^^_&
+                //       \    /
+                // Fix all bugs in 0.9345 seconds, or you will be stuck doing premature
+                // optimizations forever.
+
+                // Avoid multiple bound checks.
+                let skip = &mut self.get_skip(lv);
+                // The shortcut behind the updated one might be invalidated as well. We use a nifty
+                // trick: If the fat node is not present on one part of the split (defined by the
+                // newly inserted node), it must fall on the other. So, we can shortcut and safely
+                // skip computation of the second part half of the time.
                 if new_fat == skip.fat {
                     if let Some(next) = skip.next {
-                        next.fat = next.calculate_fat_value_bottom();
+                        // The fat value was left unchanged. This means that we need to recompute the
+                        // next segment's fat value.
+                        next.fat = next.calculate_fat_value_non_bottom(lv);
                     }
+
+                    // Since it was unchanged, there is no need for setting the value to what it
+                    // already is!
                 } else {
-                    skip.node.shortcuts[0].increase_fat(mem::replace(&mut skip.fat, new_fat));
-                }
-
-                // Place new shortcuts up to this level.
-                for lv in lv::Iter::non_bottom().to(max_lv) {
-                    // Place the node inbetween the shortcuts.
-                    seek.insert_shortcut(lv);
-
-                    // The configuration (at level `lv`) should now look like:
-                    //     [seek.node] --> [old self.node] --> [old shortcut]
-
-                    // Since we inserted a new shortcut here, we might have invalidated the old fat
-                    // value, so we need to recompute the fat value. Fortunately, since we go from
-                    // densest to opaquer layer, we can base the fat value on the values of the
-                    // previous layer.
-
-                    // An example state could look like this: Assume we go from this configuration:
-                    //     [a] -y----------> [b] ---> ...
-                    //     [a] -x----------> [b] ---> ...
-                    //     ...
-                    // To this:
-                    //     [a] -y'---------> [b] ---> ...
-                    //     [a] -p-> [n] -q-> [b] ---> ...
-                    //     ...
-                    // Here, you cannot express _p_ and _q_ in terms  of _x_ and _y_. Instead, we need
-                    // to compute them from the layer below.
-                    let new_fat = seek.node.calculate_fat_value_non_bottom(lv);
-
-                    // You have been visitied by the silly ferris.
-                    //      ()    ()
-                    //       \/\/\/
-                    //       &_^^_&
-                    //       \    /
-                    // Fix all bugs in 0.9345 seconds, or you will be stuck doing premature
-                    // optimizations forever.
-
-                    // Avoid multiple bound checks.
-                    let skip = &mut seek.get_skip(lv);
-                    // The shortcut behind the updated one might be invalidated as well. We use a nifty
-                    // trick: If the fat node is not present on one part of the split (defined by the
-                    // newly inserted node), it must fall on the other. So, we can shortcut and safely
-                    // skip computation of the second part half of the time.
-                    if new_fat == skip.fat {
-                        if let Some(next) = skip.next {
-                            // The fat value was left unchanged. This means that we need to recompute the
-                            // next segment's fat value.
-                            next.fat = next.calculate_fat_value_non_bottom(lv);
-                        }
-
-                        // Since it was unchanged, there is no need for setting the value to what it
-                        // already is!
-                    } else {
-                        // The first segment did not contain the fat node! This means that we know a
-                        // priori that the second segment contains the old fat node, i.e. has either
-                        // the same fat value or the updated node is itself the fat node. So, we
-                        // replace the new fat value and update the next segment with the old one.  As
-                        // an example, suppose the configuration looked like:
-                        //     [a] -f----------> [b]
-                        // And we inserted a new node $x$:
-                        //     [a] -g-> [x] -h-> [b]
-                        // Since the fat node (size $f$) couldn't be found on the left side ($g$) of
-                        // $x$, it must be on the right side ($h ≥ f$). It might not be equal to it,
-                        // because the size of $x$ could be greater than $f$, so we take the maximal of
-                        // $x$ and $f$ and assigns that to $h$. This way we avoid having to iterate
-                        // over all the nodes between $x$ and $b$.
-                        skip.next.unwrap().shortcuts[lv]
-                            .increase_fat(cmp::max(mem::replace(&mut skip.fat, new_fat), seek.node.block.size()));
-                    }
-                }
-
-                // The levels above the inserted shortcuts need to get there fat value updated, since a
-                // new node was inserted below. Since we only inserted (i.e. added a potentially new
-                // fat node), we simply need to max the old (unupdated) fat values with the new block's
-                // size.
-                if let Some(above) = max_lv.above() {
-                    seek.increase_fat(seek.node.block.size(), above);
+                    // The first segment did not contain the fat node! This means that we know a
+                    // priori that the second segment contains the old fat node, i.e. has either
+                    // the same fat value or the updated node is itself the fat node. So, we
+                    // replace the new fat value and update the next segment with the old one.  As
+                    // an example, suppose the configuration looked like:
+                    //     [a] -f----------> [b]
+                    // And we inserted a new node $x$:
+                    //     [a] -g-> [x] -h-> [b]
+                    // Since the fat node (size $f$) couldn't be found on the left side ($g$) of
+                    // $x$, it must be on the right side ($h ≥ f$). It might not be equal to it,
+                    // because the size of $x$ could be greater than $f$, so we take the maximal of
+                    // $x$ and $f$ and assigns that to $h$. This way we avoid having to iterate
+                    // over all the nodes between $x$ and $b$.
+                    skip.next.unwrap().shortcuts[lv]
+                        .increase_fat(cmp::max(mem::replace(&mut skip.fat, new_fat), self.node.block.size()));
                 }
             }
 
-            seek.node.check();
+            // The levels above the inserted shortcuts need to get there fat value updated, since a
+            // new node was inserted below. Since we only inserted (i.e. added a potentially new
+            // fat node), we simply need to max the old (unupdated) fat values with the new block's
+            // size.
+            if let Some(above) = max_lv.above() {
+                self.increase_fat(self.node.block.size(), above);
+            }
+        }
 
-            seek
-        });
+        self.node.check();
 
         self.check();
     }

@@ -44,6 +44,7 @@ struct Node {
 impl Node {
     /// Insert a new node after this node.
     fn insert(&mut self, new_node: Jar<Node>) {
+        // TODO: Eliminate this (critical) memcpy.
         take::replace_with(self, |node| {
             new_node.next = Some(node);
             new_node

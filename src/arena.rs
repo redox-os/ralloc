@@ -54,6 +54,7 @@ impl PointerList {
     /// This is unsafe due to holding the invariant that it is valid.
     #[inline]
     unsafe fn push(&mut self, ptr: Pointer<PointerList>) {
+        // TODO: Eliminate this memcpy.
         take::replace_with(self, |x| {
             // Set the head to the pointer.
             x.head = Some(ptr.cast());
