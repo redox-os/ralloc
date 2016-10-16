@@ -48,4 +48,4 @@ unsafe_no_mutex_lock = []
 write = []
 
 [replace]
-"libc:0.2.16" = { git = "https://github.com/redox-os/liblibc.git", branch = "new_kernel" }
+"libc:0.2.17" = { git = "https://github.com/redox-os/liblibc.git", branch = "new_kernel" }
