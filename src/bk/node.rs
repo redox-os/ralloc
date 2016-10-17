@@ -41,16 +41,20 @@ struct Node {
     shortcuts: lv::Array<Shortcut>,
 }
 
-impl Node {
+impl Jar<Node> {
     /// Insert a new node after this node.
     fn insert(&mut self, new_node: Jar<Node>) {
-        // TODO: Eliminate this (critical) memcpy.
+        // We move out of the pointer temporarily in order to restructure the list.
         take::replace_with(self, |node| {
+            // Place the old node next to the new node.
             new_node.next = Some(node);
+            // Set the new node in the old node's previous place.
             new_node
         });
     }
+}
 
+impl Node {
     // TODO: Implement `IntoIterator`.
     fn iter(&mut self) -> impl Iterator<Item = &Node> {
         PoolIter {
@@ -131,6 +135,8 @@ impl Node {
     /// This is NOP in release mode (`debug_assertions` disabled).
     #[inline]
     fn check(&self) {
+        // We only do the check when `debug_assertions` is set, since it is rather expensive and
+        // requires traversal of the whole list.
         if cfg!(debug_assertions) {
             // Check against empty blocks.
             assert!(!self.block.is_empty(), "Node's block {:?} is empty (zero sized)", self.block);
