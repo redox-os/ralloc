@@ -9,6 +9,9 @@ use core::{ptr, mem, marker};
 
 use take;
 
+// Derive the length newtype.
+usize_newtype!(pub Length);
+
 /// A linked-list of pointers.
 ///
 /// This is similar to a nodeless linked list. We use this internally to implement arenas.
@@ -86,6 +89,8 @@ pub struct Arena<T> {
     list: PointerList,
     /// Phantom data.
     _phantom: marker::PhantomData<T>,
+    /// The number of blocks currently in the arena.
+    len: Length,
 }
 
 impl<T> Arena<T> {
@@ -112,6 +117,9 @@ impl<T> Arena<T> {
     #[inline]
     pub fn alloc(&mut self, inner: T) -> Result<Jar<T>, ()> {
         if let Some(ptr) = self.list.pop() {
+            // Decrement the length.
+            self.len -= 1;
+
             // Note that this cast is valid due to the correctness of the `free` method (i.e. the
             // pointer is valid for `T`).
             let ptr = ptr.cast();
@@ -138,6 +146,9 @@ impl<T> Arena<T> {
     /// Free a jar to the arena.
     #[inline]
     pub fn free(&mut self, jar: Jar<T>) {
+        // Increment the length.
+        self.len += 1;
+
         unsafe {
             // LAST AUDIT: 2016-08-23 (Ticki).
 
@@ -146,18 +157,28 @@ impl<T> Arena<T> {
         }
     }
 
-    /// Provide this arena with some uninitialized segment.
+    /// Refill this arena with some uninitialized segment.
     ///
     /// This is used to fill the arena with memory from some source by essentially linking each
     /// piece together.
     #[inline]
-    pub fn provide(&mut self, new: Uninit<[T]>) {
+    pub fn refill(&mut self, new: Uninit<[T]>) {
         log!(DEBUG, "Providing {:?} to arena.", new.as_ptr().len());
 
-        for n in 0..new.as_ptr().len() {
+        // Increase the length.
+        let len = new.as_ptr().len();
+        self.len += len;
+
+        for n in 0..len {
             // Push the nth element to the inner pointer list.
             self.list.push(new.as_ptr().clone().cast::<T>().offset(n).cast());
         }
+    }
+
+    /// Get the number of blocks currently in the arena.
+    #[inline]
+    pub fn len(&self) -> Length {
+        self.len
     }
 }
 
@@ -170,7 +191,7 @@ mod test {
     /// Helper method to make an artificial arena.
     fn make<T>() -> Arena<T> {
         let mut arena = Arena::new();
-        arena.provide(Block::sbrk(826));
+        arena.refill(Block::sbrk(826));
 
         arena
     }

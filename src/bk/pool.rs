@@ -2,6 +2,7 @@ use core::{cmp, mem};
 
 use arena::Arena;
 use bk::search::{self, Search};
+use ptr;
 use random;
 
 struct Pool {
@@ -10,6 +11,25 @@ struct Pool {
 }
 
 impl Pool {
+    pub fn update(&mut self) {
+        /// The threshold to be reached before a refill happens.
+        const REFILL_THRESHOLD: arena::Length = arena::Length(2);
+        /// The nodes which will be added during a refill.
+        const REFILL_NODES: usize = 64;
+
+        if self.arena.len() < REFILL_THRESHOLD {
+            // The length was below the refill threshold. To avoid infinite recursion (which could
+            // happen as a result of a refill-when-empty policy, due to the refill itself needing
+            // to allocate nodes), we have a threshold which symbolizes the maximum amount of arena
+            // allocation that can happen inbetween the `update` calls.
+
+            // Allocate the block to provide to the arena.
+            let alloc = self.alloc(REFILL_NODES * mem::size_of::<Node>(), mem::align_of::<Node>());
+            // Cast the block to a pointer and hand it over to the arena.
+            self.arena.refill(ptr::Uninit::new(ptr::Pointer::from(alloc).cast()));
+        }
+    }
+
     /// Search the block pool with a particular searcher.
     ///
     /// The outline of the algorithm is this: We start by shortcutting from the top level until we
@@ -26,7 +46,7 @@ impl Pool {
     ///     ------------------> [6] ==> [7] ----------> [9] -----------> NIL
     ///     ----------> [5] --> [6] ==> [7] ----------> [9] --> [10] --> NIL
     ///     --> [1] --> [5] --> [6] --> [7] ==> [8] --> [9] --> [10] --> NIL
-    fn search<S: Search>(&mut self, searcher: S) -> Result<Seek, ()> {
+    pub fn search<S: Search>(&mut self, searcher: S) -> Result<Seek, ()> {
         // We start by an uninitialized value, which we fill out.
         let mut seek = unsafe { mem::uninitialized() };
 
