@@ -16,7 +16,7 @@
 #![no_std]
 
 #![feature(allocator, const_fn, core_intrinsics, stmt_expr_attributes, drop_types_in_const,
-           nonzero, optin_builtin_traits, type_ascription, question_mark, thread_local, linkage,
+           nonzero, optin_builtin_traits, type_ascription, thread_local, linkage,
            try_from)]
 #![warn(missing_docs, cast_precision_loss, cast_sign_loss, cast_possible_wrap,
         cast_possible_truncation, filter_map, if_not_else, items_after_statements,
