@@ -1,3 +1,5 @@
+//! The memory bookkeeping structure.
+
 use core::{cmp, mem};
 
 use arena::Arena;
@@ -5,12 +7,41 @@ use bk::search::{self, Search};
 use ptr;
 use random;
 
+/// The memory allocation pool.
+///
+/// This is the cetnral structure of `ralloc`. The block pool holds and organizes the memory such
+/// that it can be retreived and inserted efficiently.
+///
+/// The block pool organizes memory as nodes each holding some contiguous memory segment. Two
+/// neighboring blocks are never adjacent, since the segment is maximized and adjacent blocks are
+/// merged.
+///
+/// These nodes forms a skip list, which is a randomized data structure resembling a tree.
+/// Essentially, this means that every node has a stack of "shortcuts", which points to later
+/// nodes. The higher in this stack, the more nodes said shortcut skips, hence the name:
+///
+/// ![A diagram of a basic setup](https://i.imgur.com/Fd6gDLv.png)
+///
+/// Now, `ralloc` extends skip lists in a crucial way. Every shortcut contains the biggest
+/// contagious memory segment it skipped. This allows us to cheaply retrieve the biggest block,
+/// which can be broken down to a fitting size, i.e. memory allocation.
+///
+/// Because having the allocator managing its own memory gets hairy, we save up some memory in
+/// advance. This memory is stored in an arena structure, which links free pieces together.
 struct Pool {
+    /// The head (first node) of the block pool.
     head: Node,
+    /// The arena which provides the memory for the nodes.
     arena: Arena<Node>,
 }
 
 impl Pool {
+    /// Update the pool.
+    ///
+    /// This should be runned after state changes in order to maintain the capacity of the arena.
+    /// In particular, if the arena gets too low it cannot obtain more capacity without infinite
+    /// recursion, as a result of the allocation itself needing an arena. As such, there must be
+    /// some elements in excess. This function maintains that.
     pub fn update(&mut self) {
         /// The threshold to be reached before a refill happens.
         const REFILL_THRESHOLD: arena::Length = arena::Length(2);

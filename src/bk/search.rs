@@ -4,6 +4,11 @@ use bk::node::Node;
 use bk::shortcut::Shortcut;
 use block::{self, Block};
 
+/// Types defining a pool search target.
+///
+/// This trait is implemented for types which define some target or needle in the pool structure.
+///
+/// This exists in order to make searching generics and eliminate duplicate code.
 pub trait Search {
     /// Determine if this shortcut skips the needle.
     ///

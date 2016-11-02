@@ -1,6 +1,14 @@
+//! Structures for representing block pool search results.
+//!
+//! When the pool have is searched, the result needs to be represented in a way that allows us to
+//! actually use the result by modifying it. This module provides such features.
+
 /// A "seek".
 ///
 /// Seek represents the a found node ("needle") and backtracking information ("lookback").
+///
+/// Seeks makes it possible to retrospectively modify the jumped nodes based on the found node
+/// without performing the search again.
 struct Seek<'a> {
     /// The last node below our target for each level.
     ///
@@ -10,7 +18,7 @@ struct Seek<'a> {
     ///
     /// # An important note!
     ///
-    /// It is crucial that the backlook is pointers to nodes _before_ the target, not the target
+    /// It is crucial that the lookback is pointers to nodes _before_ the target, not the target
     /// node itself.
     ///
     /// Hence, the lookback cannot contain a pointer to `self.node` itself. This is an important
@@ -76,17 +84,21 @@ impl<'a> Seek<'a> {
         }
     }
 
+    /// Put a block next to the target.
+    ///
+    /// This will initially try to merge the given block with the found target. If this suceeds, it
+    /// will try to merge to the next block to maimize the block. If this fails, it will insert the
+    /// block by creating new nodes and links.
     fn put(&mut self, block: Block, arena: &mut Arena<Node>) {
         log!(INTERNAL, "Putting block {:?} into the block pool.", block);
 
         if self.node.block.merge_right(block).is_ok() {
-            log!(INTERNAL, "Merged the block to the left.", block);
-
             // Merge suceeded:
             //               [==block==]
             //     [==self==]            [==rest==]
             // is now:
             //     [==self=============] [==rest==]
+            log!(INTERNAL, "Merged the block to the left.", block);
 
             // Update the fat values.
             self.increase_fat(self.node.block.size(), Level::min());
@@ -124,6 +136,9 @@ impl<'a> Seek<'a> {
         }
     }
 
+    /// Try to merge the target node into the right-hand node.
+    ///
+    /// This will merge adjacent blocks, if possible.
     fn try_merge_right(&mut self, arena: &mut Arena<Node>) {
         if self.node.block.merge_right(self.node.next.block).is_ok() {
             log!(INTERNAL, "Merged node (block :?) right.", self.node.block);
@@ -366,7 +381,10 @@ impl<'a> Seek<'a> {
         }
     }
 
-    /// Check this seek.
+    /// Check this seek for broken invariants.
+    ///
+    /// This performs a runtime checks on the guarantees and invariants specified elsewhere in the
+    /// documentation.
     ///
     /// This is NOOP in release mode.
     fn check(&self) {
@@ -414,8 +432,13 @@ impl<'a> Seek<'a> {
     }
 }
 
+/// An iterator over the skips of the seek.
+///
+/// This iterates over the respective shortcut of each entry in the lookback.
 struct Skips<'a> {
+    /// The seek we're iterating over.
     seek: &'a Seek<'a>,
+    /// The current level.
     levels: lv::Iter,
 }
 

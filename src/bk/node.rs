@@ -1,3 +1,7 @@
+//! Bookkeeping nodes.
+//!
+//! This module provides the basic unit in the bookkeeper, the nodes.
+
 /// A block list node.
 ///
 /// A node consists of three components:
@@ -55,9 +59,12 @@ impl Jar<Node> {
 }
 
 impl Node {
+    /// Create an iterator over the nodes.
+    ///
+    /// This iterator starts at `self` and go to `self.next` until it is `None`.
     // TODO: Implement `IntoIterator`.
     fn iter(&mut self) -> impl Iterator<Item = &Node> {
-        PoolIter {
+        NodeIter {
             node: Some(self),
         }
     }
@@ -182,11 +189,16 @@ impl Node {
     }
 }
 
-struct PoolIter<'a> {
+/// An iterator over the trailing nodes.
+struct NodeIter<'a> {
+    /// The next node of this iterator.
+    ///
+    /// If there is another element, it will be returned on next iteration. If not, this field is
+    /// `None` and the iterator is over.
     node: Option<&'a mut Node>,
 }
 
-impl<'a> Iterator for PoolIter<'a> {
+impl<'a> Iterator for NodeIter<'a> {
     type Item = &'a mut Node;
 
     fn next(&mut self) -> &'a mut Node {

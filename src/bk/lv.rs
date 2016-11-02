@@ -1,7 +1,19 @@
+//! Skip list levels.
+//!
+//! This module provides newtypes for so called "levels", which are merely a form of bounded
+//! integers used to keep track of skip list nodes. Holding them as invariants on newtypes allows
+//! us to safely get around bound checks.
+
 use core::ops;
 
 use random;
 
+/// Number of possible levels.
+///
+/// This bounds the maximal level, and can thus have an important effect on performance of the
+/// allocator. On one hand, a higher number levels results in more memory usage and consequently,
+/// slower memory copies. On the other hand, having a low number of levels results in worse
+/// distribution in node heights and consequently, slower search/more traversal.
 // TODO: Tweak.
 // TODO: Move to shim.
 const LEVELS: usize = 8;
@@ -46,6 +58,10 @@ impl Level {
         }
     }
 
+    /// Get the level above this level.
+    ///
+    /// This generates non-bottom level which is exactly one level higher than this level. If the
+    /// level is the top (maximal) level, `None` is returned.
     #[inline]
     pub fn above(self) -> Option<NonBottomLevel> {
         // TODO: Find a way to eliminate this branch.
@@ -56,16 +72,27 @@ impl Level {
         }
     }
 
+    /// Get the minimal level.
+    ///
+    /// This returns level 0.
     #[inline]
     pub fn min() -> Level {
         Level(0)
     }
 
+    /// Get the maximal level.
+    ///
+    /// This returns level `LEVELS - 1`.
     #[inline]
     pub fn max() -> Level {
         Level(LEVELS - 1)
     }
 
+    /// Create a level from its respective `usize`.
+    ///
+    /// # Panics
+    ///
+    /// This might perform bound checks when in debug mode.
     #[inline]
     pub unsafe fn from_usize(lv: usize) -> Level {
         debug_assert!(lv < LEVELS, "Level is out of bounds.");
@@ -87,6 +114,9 @@ impl Into<usize> for Level {
 pub struct NonBottomLevel(Level);
 
 impl NonBottomLevel {
+    /// Get the level below this level.
+    ///
+    /// This needs no checks or `None` value, because of the invariants of this newtype.
     #[inline]
     pub fn below(self) -> Level {
         // We can safely do this, because `self.0.0` is never zero.
@@ -101,12 +131,16 @@ impl From<NonBottomLevel> for Level {
     }
 }
 
+/// An iterator over an interval of levels.
 pub struct Iter {
+    /// The next level to be returned.
     lv: usize,
+    /// The level to be reached before the iterator stops.
     to: usize,
 }
 
 impl Iter {
+    /// Create an iterator starting at some level through the last level.
     #[inline]
     pub fn start_at(lv: Level) -> Iter {
         Iter {
@@ -115,6 +149,7 @@ impl Iter {
         }
     }
 
+    /// Create an iterator over all the possible levels.
     #[inline]
     pub fn all() -> Iter {
         Iter::start_at(Level::min())
@@ -126,6 +161,8 @@ impl Iter {
         Iter::start_at(Level(1))
     }
 
+    /// Set the upperbound (last level) of this iterator.
+    #[inline]
     pub fn to(mut self, to: Level) -> Iter {
         self.to = to;
         self
@@ -157,18 +194,21 @@ impl Iterator for LevelIter {
 /// thus statically ensured.
 #[derive(Default)]
 pub struct Array<T> {
+    /// The inner fixed-size array.
     inner: [T; LEVELS],
 }
 
 impl<T> ops::Index<Level> for Array {
     type Output = T;
 
+    #[inline]
     fn index(&self, lv: Level) -> &T {
         self.inner.get_unchecked(lv.0)
     }
 }
 
 impl<T> ops::IndexMut<Level> for Array {
+    #[inline]
     fn index_mut(&mut self, lv: Level) -> &mut T {
         self.inner.get_unchecked_mut(lv.0)
     }

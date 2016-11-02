@@ -1,3 +1,7 @@
+//! Shortcuts in the skip list.
+//!
+//! Just bidning 'em nodes together.
+
 use block;
 
 /// A shortcut (a pointer to a later node and the size of the biggest block it skips).
@@ -39,6 +43,12 @@ struct Shortcut {
 }
 
 impl Shortcut {
+    /// Is this shortcut null?
+    ///
+    /// The fat value set to 0 is used as a trap value representing shortcuts _above_ the height of
+    /// the node, i.e. the entries not filled. For example, if a node has height 5 and the max
+    /// height is 8, then the tree last entries of the shortcut array are filled with null
+    /// shortcuts.
     #[inline]
     fn is_null(&self) -> bool {
         self.fat == 0
@@ -99,8 +109,14 @@ impl Shortcut {
     }
 }
 
+/// An iterator over shortcuts of some level.
+///
+/// This will skip go to the shortcutted ($$n$$'th shortcut) node and take the shortcut on level
+/// $$n$$. As such, it will go over shortcuts of level $$n$$, in order.
 struct ShortcutIter<'a> {
+    /// The level of the shortcuts we're iterating over.
     lv: Level,
+    /// The shortcut to be returned next iteration.
     shortcut: Option<&'a Shortcut>,
 }
 
