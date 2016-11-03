@@ -12,6 +12,8 @@ lto = true
 debug-assertions = false
 codegen-units = 1
 
-[dependencies.libc]
-version = "0.2"
-default-features = false
+[target.'cfg(not(redox))'.dependencies]
+libc = { version = "0.2", default-features = false }
+
+[target.'cfg(redox)'.dependencies]
+redox_syscall = { git = "https://github.com/redox-os/syscall.git" }
