@@ -2,6 +2,14 @@
 //!
 //! This crate provides implementation/import of these in Linux, BSD, and Mac OS.
 
-#![feature(linkage)]
+#![cfg_attr(not(redox), feature(linkage))]
 #![no_std]
 #![warn(missing_docs)]
+
+#[cfg(redox)]
+mod redox as imp;
+
+#[cfg(not(redox))]
+mod unix as imp;
+
+pub use imp::*;
