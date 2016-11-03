@@ -1,7 +1,5 @@
 extern crate syscall;
 
-use self::syscall;
-
 /// Cooperatively gives up a timeslice to the OS scheduler.
 pub extern "C" fn sched_yield() -> isize {
     match syscall::sched_yield() {
