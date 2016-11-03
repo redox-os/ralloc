@@ -1,10 +1,10 @@
-extern crate system;
+extern crate syscall;
 
-use system::syscall::unix::{sys_brk, sys_write, sys_yield};
+use self::syscall;
 
 /// Cooperatively gives up a timeslice to the OS scheduler.
 pub extern "C" fn sched_yield() -> isize {
-    match sys_yield() {
+    match syscall::sched_yield() {
         Ok(_) => 0,
         Err(_) => -1
     }
@@ -18,7 +18,7 @@ pub extern "C" fn sched_yield() -> isize {
 /// This is unsafe for multiple reasons. Most importantly, it can create an inconsistent state,
 /// because it is not atomic. Thus, it can be used to create Undefined Behavior.
 pub extern "C" fn sbrk(n: isize) -> *mut u8 {
-    let orig_seg_end = match unsafe { sys_brk(0) } {
+    let orig_seg_end = match unsafe { syscall::brk(0) } {
         Ok(end) => end,
         Err(_) => return !0 as *mut u8
     };
@@ -32,14 +32,14 @@ pub extern "C" fn sbrk(n: isize) -> *mut u8 {
         None => return !0 as *mut u8
     };
 
-    let new_seg_end = match unsafe { sys_brk(expected_end) } {
+    let new_seg_end = match unsafe { syscall::brk(expected_end) } {
         Ok(end) => end,
         Err(_) => return !0 as *mut u8
     };
 
     if new_seg_end != expected_end {
         // Reset the break.
-        let _ = unsafe { sys_brk(orig_seg_end) };
+        let _ = unsafe { syscall::brk(orig_seg_end) };
 
         !0 as *mut u8
     } else {
@@ -51,7 +51,7 @@ pub extern "C" fn sbrk(n: isize) -> *mut u8 {
 ///
 /// This points to stderr, but could be changed arbitrarily.
 pub fn log(s: &str) -> isize {
-    sys_write(2, s.as_bytes()).map(|count| count as isize).unwrap_or(-1)
+    syscall::write(2, s.as_bytes()).map(|count| count as isize).unwrap_or(-1)
 }
 
 pub mod thread_destructor {

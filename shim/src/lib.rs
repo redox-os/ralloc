@@ -7,9 +7,13 @@
 #![warn(missing_docs)]
 
 #[cfg(redox)]
-mod redox as imp;
+mod redox;
+
+#[cfg(redox)]
+pub use redox::*;
 
 #[cfg(not(redox))]
-mod unix as imp;
+mod unix;
 
-pub use imp::*;
+#[cfg(not(redox))]
+pub use unix::*;

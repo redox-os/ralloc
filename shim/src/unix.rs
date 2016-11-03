@@ -1,7 +1,6 @@
-
 extern crate libc;
 
-pub use libc::sched_yield;
+pub use self::libc::sched_yield;
 
 extern {
     /// Change the data segment. See `man sbrk`.
@@ -20,7 +19,7 @@ pub fn log(s: &str) -> libc::ssize_t {
 /// Thread destructors for Linux.
 #[cfg(target_os = "linux")]
 pub mod thread_destructor {
-    use libc;
+    use super::libc;
 
     extern {
         #[linkage = "extern_weak"]
@@ -34,7 +33,7 @@ pub mod thread_destructor {
     /// This will return true, if and only if `__cxa_thread_atexit_impl` is non-null.
     #[inline]
     pub fn is_supported() -> bool {
-        !__cxa_thread_atexit_impl.is_null()
+        unsafe { !__cxa_thread_atexit_impl.is_null() }
     }
 
     /// Register a thread destructor.
@@ -60,7 +59,7 @@ pub mod thread_destructor {
 /// Thread destructors for Mac OS.
 #[cfg(target_os = "macos")]
 pub mod thread_destructor {
-    use libc;
+    use super::libc;
 
     /// Does this platform support thread destructors?
     ///
@@ -86,7 +85,7 @@ pub mod thread_destructor {
 
 /// Debugging.
 pub mod debug {
-    use libc;
+    use super::libc;
 
     extern {
         /// Valgrind symbol to declare memory undefined.
