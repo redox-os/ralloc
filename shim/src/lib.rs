@@ -6,14 +6,14 @@
 #![no_std]
 #![warn(missing_docs)]
 
-#[cfg(redox)]
+#[cfg(target_os = "redox")]
 mod redox;
 
-#[cfg(redox)]
+#[cfg(target_os = "redox")]
 pub use redox::*;
 
-#[cfg(not(redox))]
+#[cfg(not(target_os = "redox"))]
 mod unix;
 
-#[cfg(not(redox))]
+#[cfg(not(target_os = "redox"))]
 pub use unix::*;
