@@ -1,6 +1,14 @@
-//! System primitives.
+//! Symbols and externs that `ralloc` depends on.
+//!
+//! This crate provides implementation/import of these in Linux, BSD, and Mac OS.
 
-extern crate ralloc_shim as shim;
+#[cfg(target_os = "redox")]
+#[path="redox.rs"]
+mod shim;
+
+#[cfg(not(target_os = "redox"))]
+#[path="unix.rs"]
+mod shim;
 
 use prelude::*;
 

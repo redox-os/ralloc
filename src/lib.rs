@@ -22,10 +22,6 @@
         invalid_upcast_comparisons, mutex_integer, nonminimal_bool, shadow_same, shadow_unrelated,
         single_match_else, string_add, string_add_assign, wrong_pub_self_convention)]
 
-#[macro_use]
-#[no_link]
-extern crate unborrow;
-
 #[cfg(feature = "write")]
 #[macro_use]
 mod write;

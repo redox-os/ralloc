@@ -12,12 +12,11 @@ readme = "README.md"
 keywords = ["alloc", "malloc", "allocator", "ralloc", "redox"]
 license = "MIT"
 
-[dependencies]
-unborrow = "0.3.0"
+[target.'cfg(not(target_os = "redox"))'.dependencies]
+libc = { version = "0.2", default-features = false }
 
-[dependencies.ralloc_shim]
-path = "shim"
-version = "0.1"
+[target.'cfg(target_os = "redox")'.dependencies]
+redox_syscall = { git = "https://github.com/redox-os/syscall.git" }
 
 [dependencies.clippy]
 version = "0.0.80"
@@ -46,6 +45,3 @@ tls = []
 unsafe_no_brk_lock = []
 unsafe_no_mutex_lock = []
 write = []
-
-[replace]
-"libc:0.2.17" = { git = "https://github.com/redox-os/liblibc.git", branch = "redox" }

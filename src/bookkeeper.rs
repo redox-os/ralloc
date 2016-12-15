@@ -639,7 +639,8 @@ pub trait Allocator: ops::DerefMut<Target = Bookkeeper> {
             }
 
             // Reserve space and free the old buffer.
-            if let Some(x) = unborrow!(self.reserve(self.pool.len() + 1)) {
+            let new_len = self.pool.len() + 1;
+            if let Some(x) = self.reserve(new_len) {
                 self.free(x);
             }
 
@@ -807,7 +808,8 @@ pub trait Allocator: ops::DerefMut<Target = Bookkeeper> {
 
             // Reserve space. This does not break order, due to the assumption that
             // `reserve` never breaks order.
-            old_buf = unborrow!(self.reserve(self.pool.len() + 1));
+            let new_len = self.pool.len() + 1;
+            old_buf = self.reserve(new_len);
 
             // We will move a block into reserved memory but outside of the vec's bounds. For
             // that reason, we push an uninitialized element to extend the length, which will
