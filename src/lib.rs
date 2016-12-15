@@ -23,9 +23,6 @@
         invalid_upcast_comparisons, mutex_integer, nonminimal_bool, shadow_same, shadow_unrelated,
         single_match_else, string_add, string_add_assign, wrong_pub_self_convention)]
 
-#[macro_use]
-#[no_link]
-extern crate unborrow;
 extern crate ralloc_shim as shim;
 
 #[macro_use]
@@ -47,6 +44,7 @@ mod leak;
 mod prelude;
 mod ptr;
 mod sync;
+mod unborrow;
 mod vec;
 
 pub use allocator::{alloc, free, realloc, realloc_inplace};
