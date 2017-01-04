@@ -36,6 +36,7 @@ pub fn oom() -> ! {
         if let Some(handler) = THREAD_OOM_HANDLER.with(|x| x.get()) {
             log!(DEBUG, "Calling the local OOM handler.");
 
+            // Duh! Obviously, we run the handler.
             handler();
         }
     }

@@ -45,6 +45,7 @@ impl<F: FnMut() -> T, T> LazyInit<F, T> {
             State::Uninitialized(ref mut f) => inner = f(),
         }
 
+        // Put the intialized value into the state.
         self.state = State::Initialized(inner);
 
         if let State::Initialized(ref mut x) = self.state {

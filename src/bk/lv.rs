@@ -177,7 +177,7 @@ impl Iterator for LevelIter {
         if self.lv <= self.to {
             let ret = self.n;
 
-            // Increment the counter.
+            // Increment the level counter.
             self.lv = ret + 1;
 
             Some(Level(ret))
