@@ -33,6 +33,9 @@ mod tls;
 #[cfg(feature = "allocator")]
 mod symbols;
 
+#[macro_use]
+mod unborrow;
+
 mod allocator;
 mod block;
 mod bookkeeper;
@@ -44,7 +47,6 @@ mod leak;
 mod prelude;
 mod ptr;
 mod sync;
-mod unborrow;
 mod vec;
 
 pub use allocator::{alloc, free, realloc, realloc_inplace};
