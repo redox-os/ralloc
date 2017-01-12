@@ -203,6 +203,7 @@ pub struct LocalAllocator {
     inner: Bookkeeper,
 }
 
+#[cfg(feature = "tls")]
 impl LocalAllocator {
     /// Initialize the local allocator.
     #[cfg(feature = "tls")]
