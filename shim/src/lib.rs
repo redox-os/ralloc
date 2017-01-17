@@ -12,7 +12,7 @@
 #![warn(missing_docs)]
 
 #[macro_use]
-extern crate syscall;
+extern crate sc;
 
 pub mod config;
 pub mod thread_destructor;

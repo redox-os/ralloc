@@ -13,4 +13,4 @@ debug-assertions = false
 codegen-units = 1
 
 [dependencies]
-syscall = "0.2.1"
+sc = "0.1.0"
