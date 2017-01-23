@@ -7,7 +7,7 @@
 //! You CANNOT use libc library calls, due to no guarantees being made about allocations of the
 //! functions in the POSIX specification. Therefore, we use the system calls directly.
 
-#![feature(linkage, core_intrinsics)]
+#![feature(linkage, core_intrinsics, pub_restricted)]
 #![no_std]
 #![warn(missing_docs)]
 
