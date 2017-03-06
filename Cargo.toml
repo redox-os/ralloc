@@ -19,10 +19,6 @@ unborrow = "0.3.0"
 path = "shim"
 version = "0.1"
 
-[dependencies.clippy]
-version = "0.0.85"
-optional = true
-
 [profile.release]
 panic = "abort"
 opt-level = 3
@@ -33,7 +29,7 @@ debug-assertions = false
 codegen-units = 1
 
 [features]
-default = ["allocator", "clippy", "tls"]
+default = ["allocator", "tls"]
 # ---
 alloc_id = []
 allocator = []
