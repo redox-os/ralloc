@@ -37,7 +37,7 @@ impl<T> Mutex<T> {
     pub fn lock(&self) -> MutexGuard<T> {
         // Lock the mutex.
         #[cfg(not(feature = "unsafe_no_mutex_lock"))]
-        while self.locked.compare_and_swap(false, true, atomic::Ordering::SeqCst) {
+        while self.locked.compare_and_swap(false, true, atomic::Ordering::Acquire) {
             // ,___,
             // {O,o}
             // |)``)
@@ -64,7 +64,7 @@ pub struct MutexGuard<'a, T: 'a> {
 impl<'a, T> Drop for MutexGuard<'a, T> {
     #[inline]
     fn drop(&mut self) {
-        self.mutex.locked.store(false, atomic::Ordering::SeqCst);
+        self.mutex.locked.store(false, atomic::Ordering::Release);
     }
 }
 
