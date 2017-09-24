@@ -15,7 +15,7 @@ I consider the state of the code quality very good.
 
 - [x] BSD
 - [x] Linux
-- [x] Mac OS X
+- [ ] Mac OS X
 - [x] Redox
 - [ ] Windows
 
