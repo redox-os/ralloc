@@ -68,7 +68,7 @@ impl<T: Leak> Vec<T> {
 
             // Due to the invariants of `Block`, this copy is safe (the pointer is valid and
             // unaliased).
-            ptr::copy_nonoverlapping(*old.ptr, *self.ptr, old.len);
+            ptr::copy_nonoverlapping(old.ptr.get(), self.ptr.get(), old.len);
         }
 
         Block::from(old)
@@ -95,7 +95,7 @@ impl<T: Leak> Vec<T> {
 
                 // By the invariants of this type (the size is bounded by the address space), this
                 // conversion isn't overflowing.
-                ptr::write((*self.ptr).offset(self.len as isize), elem);
+                ptr::write((self.ptr.get()).offset(self.len as isize), elem);
             }
 
             // Increment the length.
@@ -193,7 +193,7 @@ impl<T: Leak> ops::Deref for Vec<T> {
             // LAST AUDIT: 2016-08-21 (Ticki).
 
             // The invariants maintains safety.
-            slice::from_raw_parts(*self.ptr as *const T, self.len)
+            slice::from_raw_parts(self.ptr.get() as *const T, self.len)
         }
     }
 }
@@ -205,7 +205,7 @@ impl<T: Leak> ops::DerefMut for Vec<T> {
             // LAST AUDIT: 2016-08-21 (Ticki).
 
             // The invariants maintains safety.
-            slice::from_raw_parts_mut(*self.ptr as *mut T, self.len)
+            slice::from_raw_parts_mut(self.ptr.get() as *mut T, self.len)
         }
     }
 }
