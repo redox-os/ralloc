@@ -323,7 +323,7 @@ mod test {
         assert!(!rest.is_empty());
         assert!(lorem.align(2).unwrap().1.aligned_to(2));
         assert!(rest.align(15).unwrap().1.aligned_to(15));
-        assert_eq!(*Pointer::from(lorem) as usize + 5, *Pointer::from(rest) as usize);
+        assert_eq!(Pointer::from(lorem).get() as usize + 5, Pointer::from(rest).get() as usize);
     }
 
     #[test]
@@ -376,7 +376,7 @@ mod test {
 
         assert!(block.empty_left().is_empty());
         assert!(block.empty_right().is_empty());
-        assert_eq!(*Pointer::from(block.empty_left()) as *const u8, arr.as_ptr());
+        assert_eq!(Pointer::from(block.empty_left()).get() as *const u8, arr.as_ptr());
         assert_eq!(block.empty_right(), block.split(arr.len()).1);
     }
 }

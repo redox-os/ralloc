@@ -103,22 +103,22 @@ mod test {
 
         unsafe {
             let ptr = Pointer::new(&mut x[0] as *mut u8);
-            assert_eq!(**ptr, b'a');
-            assert_eq!(**ptr.clone().cast::<[u8; 1]>(), [b'a']);
-            assert_eq!(**ptr.offset(1), b'b');
+            assert_eq!(*ptr.get(), b'a');
+            assert_eq!(*ptr.clone().cast::<[u8; 1]>().get(), [b'a']);
+            assert_eq!(*ptr.offset(1).get(), b'b');
         }
 
         let mut y = ['a', 'b'];
 
         unsafe {
             let ptr = Pointer::new(&mut y[0] as *mut char);
-            assert_eq!(**ptr.clone().cast::<[char; 1]>(), ['a']);
-            assert_eq!(**ptr.offset(1), 'b');
+            assert_eq!(*ptr.clone().cast::<[char; 1]>().get(), ['a']);
+            assert_eq!(*ptr.offset(1).get(), 'b');
         }
     }
 
     #[test]
     fn test_empty() {
-        assert_eq!(*Pointer::<u8>::empty() as usize, 1);
+        assert_eq!(Pointer::<u8>::empty().get() as usize, 1);
     }
 }

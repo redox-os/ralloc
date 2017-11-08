@@ -210,7 +210,7 @@ mod test {
             let brk1 = lock().sbrk(5).unwrap();
             let brk2 = lock().sbrk(100).unwrap();
 
-            assert!(*brk1 < *brk2);
+            assert!(brk1.get() < brk2.get());
         }
     }
 }
