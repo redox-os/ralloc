@@ -22,10 +22,10 @@ pub mod arch {
         /// A thread destructor.
         type Dtor = unsafe extern fn(dtor: unsafe extern fn(*mut u8), arg: *mut u8, dso_handle: *mut u8) -> i32;
 
-        // Make sure the symbols exist.
-        assert!(!__cxa_thread_atexit_impl.is_null());
-
         unsafe {
+            // Make sure the symbols exist.
+            assert!(!__cxa_thread_atexit_impl.is_null());
+
             mem::transmute::<*const u8, Dtor>(__cxa_thread_atexit_impl)
                 (dtor, t, &__dso_handle as *const _ as *mut _)
         };

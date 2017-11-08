@@ -30,7 +30,7 @@ impl<T> Pointer<T> {
         debug_assert!(!ptr.is_null(), "Null pointer!");
 
         Pointer {
-            ptr: NonZero::new(ptr),
+            ptr: NonZero::new_unchecked(ptr),
             _phantom: marker::PhantomData,
         }
     }
@@ -45,7 +45,7 @@ impl<T> Pointer<T> {
                 // LAST AUDIT: 2016-08-21 (Ticki).
 
                 // 0x1 is non-zero.
-                NonZero::new(0x1 as *mut T)
+                NonZero::new_unchecked(0x1 as *mut T)
             },
             _phantom: marker::PhantomData,
         }
@@ -61,7 +61,7 @@ impl<T> Pointer<T> {
                 // LAST AUDIT: 2016-08-21 (Ticki).
 
                 // Casting the pointer will preserve its nullable state.
-                NonZero::new(*self as *mut U)
+                NonZero::new_unchecked(self.get() as *mut U)
             },
             _phantom: marker::PhantomData,
         }
@@ -76,7 +76,11 @@ impl<T> Pointer<T> {
     /// This is unsafe, due to OOB offsets being undefined behavior.
     #[inline]
     pub unsafe fn offset(self, diff: isize) -> Pointer<T> {
-        Pointer::new(self.ptr.offset(diff))
+        Pointer::new(self.ptr.get().offset(diff))
+    }
+
+    pub fn get(&self) -> *mut T {
+        self.ptr.get()
     }
 }
 
@@ -88,15 +92,6 @@ impl<T> Default for Pointer<T> {
 
 unsafe impl<T: Send> Send for Pointer<T> {}
 unsafe impl<T: Sync> Sync for Pointer<T> {}
-
-impl<T> ops::Deref for Pointer<T> {
-    type Target = *mut T;
-
-    #[inline]
-    fn deref(&self) -> &*mut T {
-        &self.ptr
-    }
-}
 
 #[cfg(test)]
 mod test {

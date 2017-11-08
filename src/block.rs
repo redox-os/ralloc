@@ -110,7 +110,7 @@ impl Block {
     /// Is this block aligned to `align`?
     #[inline]
     pub fn aligned_to(&self, align: usize) -> bool {
-        *self.ptr as usize % align == 0
+        self.ptr.get() as usize % align == 0
     }
 
     /// memcpy the block to another pointer.
@@ -129,7 +129,7 @@ impl Block {
             // LAST AUDIT: 2016-08-21 (Ticki).
 
             // From the invariants of `Block`, this copy is well-defined.
-            ptr::copy_nonoverlapping(*self.ptr, *block.ptr, self.size);
+            ptr::copy_nonoverlapping(self.ptr.get(), block.ptr.get(), self.size);
         }
     }
 
@@ -145,7 +145,7 @@ impl Block {
 
                 // Since the memory of the block is inaccessible (read-wise), zeroing it is fully
                 // safe.
-                intrinsics::volatile_set_memory(*self.ptr, 0, self.size);
+                intrinsics::volatile_set_memory(self.ptr.get(), 0, self.size);
             }
         }
     }
@@ -162,7 +162,7 @@ impl Block {
     #[inline]
     pub fn left_to(&self, to: &Block) -> bool {
         // This won't overflow due to the end being bounded by the address space.
-        self.size + *self.ptr as usize == *to.ptr as usize
+        self.size + self.ptr.get() as usize == to.ptr.get() as usize
     }
 
     /// Split the block at some position.
@@ -207,7 +207,7 @@ impl Block {
 
         // Calculate the aligner, which defines the smallest size required as precursor to align
         // the block to `align`.
-        let aligner = (align - *self.ptr as usize % align) % align;
+        let aligner = (align - self.ptr.get() as usize % align) % align;
         //                                                 ^^^^^^^^
         // To avoid wasting space on the case where the block is already aligned, we calculate it
         // modulo `align`.
@@ -275,7 +275,7 @@ impl From<Block> for Pointer<u8> {
 impl PartialOrd for Block {
     #[inline]
     fn partial_cmp(&self, other: &Block) -> Option<cmp::Ordering> {
-        self.ptr.partial_cmp(&other.ptr)
+        self.ptr.get().partial_cmp(&other.ptr.get())
     }
 }
 
@@ -283,14 +283,14 @@ impl PartialOrd for Block {
 impl Ord for Block {
     #[inline]
     fn cmp(&self, other: &Block) -> cmp::Ordering {
-        self.ptr.cmp(&other.ptr)
+        self.ptr.get().cmp(&other.ptr.get())
     }
 }
 
 impl cmp::PartialEq for Block {
     #[inline]
     fn eq(&self, other: &Block) -> bool {
-        *self.ptr == *other.ptr
+        self.ptr.get() == other.ptr.get()
     }
 }
 
@@ -298,7 +298,7 @@ impl cmp::Eq for Block {}
 
 impl fmt::Debug for Block {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "0x{:x}[{}]", *self.ptr as usize, self.size)
+        write!(f, "0x{:x}[{}]", self.ptr.get() as usize, self.size)
     }
 }
 

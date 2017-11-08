@@ -300,7 +300,7 @@ impl Allocator for LocalAllocator {
 pub fn alloc(size: usize, align: usize) -> *mut u8 {
     log!(CALL, "Allocating buffer of size {} (align {}).", size, align);
 
-    get_allocator!(|alloc| *Pointer::from(alloc.alloc(size, align)))
+    get_allocator!(|alloc| Pointer::from(alloc.alloc(size, align)).get())
 }
 
 /// Free a buffer.
@@ -353,11 +353,11 @@ pub unsafe fn realloc(ptr: *mut u8, old_size: usize, size: usize, align: usize) 
     log!(CALL, "Reallocating buffer of size {} to new size {}.", old_size, size);
 
     get_allocator!(|alloc| {
-        *Pointer::from(alloc.realloc(
+        Pointer::from(alloc.realloc(
             Block::from_raw_parts(Pointer::new(ptr), old_size),
             size,
             align
-        ))
+        )).get()
     })
 }
 

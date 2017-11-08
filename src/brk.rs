@@ -46,7 +46,7 @@ impl BrkLock {
         let expected_brk = self.current_brk().offset(size);
 
         // Break it to me, babe!
-        let old_brk = Pointer::new(syscalls::brk(*expected_brk as *const u8) as *mut u8);
+        let old_brk = Pointer::new(syscalls::brk(expected_brk.get() as *const u8) as *mut u8);
 
         /// AAAARGH WAY TOO MUCH LOGGING
         ///
@@ -180,7 +180,7 @@ pub fn lock() -> BrkLock {
 ///
 /// On failure the maximum pointer (`!0 as *mut u8`) is returned.
 pub unsafe extern fn sbrk(size: isize) -> *mut u8 {
-    *lock().sbrk(size).unwrap_or_else(|()| Pointer::new(!0 as *mut u8))
+    lock().sbrk(size).unwrap_or_else(|()| Pointer::new(!0 as *mut u8)).get()
 }
 
 /// Get the current program break.

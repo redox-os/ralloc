@@ -29,7 +29,7 @@ impl<T: 'static> Key<T> {
     /// Having a reference newtype would be unsound, due to the ability to leak a reference to
     /// another thread.
     #[inline]
-    pub fn with<F, R>(&'static self, f: F) -> R
+    pub fn with<F, R>(&self, f: F) -> R
         where F: FnOnce(&T) -> R {
         // Logging.
         log!(INTERNAL, "Accessing TLS variable.");
@@ -42,7 +42,7 @@ impl<T: 'static> Key<T> {
     /// Note that this has to be registered for every thread, it is needed for.
     // TODO: Make this automatic on `Drop`.
     #[inline]
-    pub fn register_thread_destructor(&'static self, dtor: extern fn(&T)) {
+    pub fn register_thread_destructor(&self, dtor: extern fn(&T)) {
         // Logging.
         log!(INTERNAL, "Registering thread destructor.");
 
