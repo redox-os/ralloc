@@ -12,5 +12,8 @@ lto = true
 debug-assertions = false
 codegen-units = 1
 
-[dependencies]
+[target.'cfg(not(target_os = "redox"))'.dependencies]
 sc = "0.2.1"
+
+[target.'cfg(target_os = "redox")'.dependencies]
+redox_syscall = "0.1"

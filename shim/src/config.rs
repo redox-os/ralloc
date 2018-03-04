@@ -43,8 +43,17 @@ pub fn default_oom_handler() -> ! {
 /// Write to the log.
 ///
 /// This points to stderr, but could be changed arbitrarily.
+#[cfg(not(target_os = "redox"))]
 pub fn log(s: &str) -> usize {
     unsafe { syscall!(WRITE, 2, s.as_ptr(), s.len()) }
+}
+
+/// Write to the log.
+///
+/// This points to stderr, but could be changed arbitrarily.
+#[cfg(target_os = "redox")]
+pub fn log(s: &str) -> usize {
+    ::syscall::write(2, s.as_bytes()).unwrap_or(!0)
 }
 
 /// Canonicalize a fresh allocation.

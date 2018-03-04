@@ -11,8 +11,12 @@
 #![no_std]
 #![warn(missing_docs)]
 
+#[cfg(not(target_os = "redox"))]
 #[macro_use]
 extern crate sc;
+
+#[cfg(target_os = "redox")]
+extern crate syscall;
 
 pub mod config;
 pub mod thread_destructor;
