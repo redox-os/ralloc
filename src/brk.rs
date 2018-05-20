@@ -33,7 +33,7 @@ pub struct BrkLock {
 }
 
 impl BrkLock {
-    /// Extend the program break.
+    /// Extend the program break, and return the old one.
     ///
     /// # Safety
     ///
@@ -43,10 +43,11 @@ impl BrkLock {
 
         // Calculate the new program break. To avoid making multiple syscalls, we make use of the
         // state cache.
-        let expected_brk = self.current_brk().offset(size);
+        let old_brk = self.current_brk();
+        let expected_brk = old_brk.clone().offset(size);
 
         // Break it to me, babe!
-        let old_brk = Pointer::new(syscalls::brk(expected_brk.get() as *const u8) as *mut u8);
+        let new_brk = Pointer::new(syscalls::brk(expected_brk.get() as *const u8) as *mut u8);
 
         /// AAAARGH WAY TOO MUCH LOGGING
         ///
@@ -55,7 +56,7 @@ impl BrkLock {
         /// REEEEEEEEEEEEEEEEEEEEEE
         log!(INTERNAL, "Program break set.");
 
-        if expected_brk == old_brk {
+        if expected_brk == new_brk {
             // Update the program break cache.
             self.state.current_brk = Some(expected_brk.clone());
 
@@ -64,6 +65,7 @@ impl BrkLock {
         } else {
             // BRK failed. This syscall is rather weird, but whenever it fails (e.g. OOM) it
             // returns the old (unchanged) break.
+            assert_eq!(old_brk, new_brk);
             Err(())
         }
     }
