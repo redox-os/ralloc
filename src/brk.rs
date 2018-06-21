@@ -73,7 +73,6 @@ impl BrkLock {
     /// Safely release memory to the OS.
     ///
     /// If failed, we return the memory.
-    #[allow(cast_possible_wrap)]
     pub fn release(&mut self, block: Block) -> Result<(), Block> {
         // Check if we are actually next to the program break.
         if self.current_brk() == Pointer::from(block.empty_right()) {

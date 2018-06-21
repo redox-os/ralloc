@@ -61,7 +61,6 @@ impl Block {
 
     /// Create an empty block representing the right edge of this block
     #[inline]
-    #[allow(cast_possible_wrap)]
     pub fn empty_right(&self) -> Block {
         Block {
             size: 0,
@@ -171,7 +170,6 @@ impl Block {
     ///
     /// Panics if `pos` is out of bound.
     #[inline]
-    #[allow(cast_possible_wrap)]
     pub fn split(self, pos: usize) -> (Block, Block) {
         assert!(pos <= self.size, "Split {} out of bound (size is {})!", pos, self.size);
 
@@ -197,7 +195,6 @@ impl Block {
     ///
     /// Returns an `None` holding the intact block if `align` is out of bounds.
     #[inline]
-    #[allow(cast_possible_wrap)]
     pub fn align(&mut self, align: usize) -> Option<(Block, Block)> {
         // Logging.
         log!(INTERNAL, "Padding {:?} to align {}", self, align);
