@@ -25,13 +25,16 @@ impl<T> MoveCell<T> {
     /// Replace the inner data and return the old.
     #[inline]
     pub fn replace(&self, new: T) -> T {
-        mem::replace(unsafe {
-            // LAST AUDIT: 2016-08-21 (Ticki).
+        mem::replace(
+            unsafe {
+                // LAST AUDIT: 2016-08-21 (Ticki).
 
-            // This is safe due to never aliasing the value, but simply transfering ownership to
-            // the caller.
-            &mut *self.inner.get()
-        }, new)
+                // This is safe due to never aliasing the value, but simply transfering ownership to
+                // the caller.
+                &mut *self.inner.get()
+            },
+            new,
+        )
     }
 }
 

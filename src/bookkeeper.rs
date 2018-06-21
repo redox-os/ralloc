@@ -3,7 +3,7 @@
 use prelude::*;
 
 use core::ops::Range;
-use core::{ptr, mem, ops};
+use core::{mem, ops, ptr};
 
 use shim::config;
 
@@ -73,7 +73,10 @@ impl Bookkeeper {
     /// Create a new bookkeeper with some initial vector.
     pub fn new(vec: Vec<Block>) -> Bookkeeper {
         // Make sure the assumptions are satisfied.
-        debug_assert!(vec.capacity() >= EXTRA_ELEMENTS, "Not enough initial capacity of the vector.");
+        debug_assert!(
+            vec.capacity() >= EXTRA_ELEMENTS,
+            "Not enough initial capacity of the vector."
+        );
         debug_assert!(vec.is_empty(), "Initial vector isn't empty.");
 
         // TODO: When added use expr field attributes.
@@ -113,7 +116,9 @@ impl Bookkeeper {
         let len = self.pool.len();
 
         // Move left.
-        ind - self.pool.iter_mut()
+        ind - self
+            .pool
+            .iter_mut()
             .rev()
             .skip(len - ind)
             .take_while(|x| x.is_empty())
@@ -136,7 +141,9 @@ impl Bookkeeper {
         let len = self.pool.len();
 
         // Move left.
-        left_ind -= self.pool.iter_mut()
+        left_ind -= self
+            .pool
+            .iter_mut()
             .rev()
             .skip(len - left_ind)
             .take_while(|x| x.is_empty())
@@ -147,7 +154,9 @@ impl Bookkeeper {
         };
 
         // Move right.
-        right_ind += self.pool.iter()
+        right_ind += self
+            .pool
+            .iter()
             .skip(right_ind)
             .take_while(|x| x.is_empty())
             .count();
@@ -214,9 +223,11 @@ impl Bookkeeper {
             let mut it = self.pool.iter().enumerate().rev();
 
             // Check that the capacity is large enough.
-            assert!(self.reserving || self.pool.len() + EXTRA_ELEMENTS <= self.pool.capacity(),
-                    "The capacity should be at least {} more than the length of the pool.",
-                    EXTRA_ELEMENTS);
+            assert!(
+                self.reserving || self.pool.len() + EXTRA_ELEMENTS <= self.pool.capacity(),
+                "The capacity should be at least {} more than the length of the pool.",
+                EXTRA_ELEMENTS
+            );
 
             if let Some((_, x)) = it.next() {
                 // Make sure there are no leading empty blocks.
@@ -229,26 +240,51 @@ impl Bookkeeper {
                     total_bytes += i.size();
 
                     // Check if sorted.
-                    assert!(next >= i, "The block pool is not sorted at index, {} ({:?} < {:?}).",
-                            n, next, i);
+                    assert!(
+                        next >= i,
+                        "The block pool is not sorted at index, {} ({:?} < {:?}).",
+                        n,
+                        next,
+                        i
+                    );
                     // Make sure no blocks are adjacent.
-                    assert!(!i.left_to(next) || i.is_empty(), "Adjacent blocks at index, {} ({:?} and \
-                            {:?})", n, i, next);
+                    assert!(
+                        !i.left_to(next) || i.is_empty(),
+                        "Adjacent blocks at index, {} ({:?} and \
+                         {:?})",
+                        n,
+                        i,
+                        next
+                    );
                     // Make sure an empty block has the same address as its right neighbor.
-                    assert!(!i.is_empty() || i == next, "Empty block not adjacent to right neighbor \
-                            at index {} ({:?} and {:?})", n, i, next);
+                    assert!(
+                        !i.is_empty() || i == next,
+                        "Empty block not adjacent to right neighbor \
+                         at index {} ({:?} and {:?})",
+                        n,
+                        i,
+                        next
+                    );
 
                     // Set the variable tracking the previous block.
                     next = i;
                 }
 
                 // Check for trailing empty blocks.
-                assert!(!self.pool.last().unwrap().is_empty(), "Trailing empty blocks.");
+                assert!(
+                    !self.pool.last().unwrap().is_empty(),
+                    "Trailing empty blocks."
+                );
             }
 
             // Make sure the sum is maintained properly.
-            assert!(total_bytes == self.total_bytes, "The sum is not equal to the 'total_bytes' \
-                    field: {} ≠ {}.", total_bytes, self.total_bytes);
+            assert!(
+                total_bytes == self.total_bytes,
+                "The sum is not equal to the 'total_bytes' \
+                 field: {} ≠ {}.",
+                total_bytes,
+                self.total_bytes
+            );
         }
     }
 }
@@ -331,25 +367,31 @@ pub trait Allocator: ops::DerefMut<Target = Bookkeeper> {
         // Logging.
         bk_log!(self, "Allocating {} bytes with alignment {}.", size, align);
 
-        if let Some((n, b)) = self.pool.iter_mut().enumerate().filter_map(|(n, i)| {
-            if i.size() >= size {
-                // Try to split at the aligner.
-                i.align(align).and_then(|(mut a, mut b)| {
-                    if b.size() >= size {
-                        // Override the old block.
-                        *i = a;
-                        Some((n, b))
-                    } else {
-                        // Put the split block back together and place it back in its spot.
-                        a.merge_right(&mut b).expect("Unable to merge block right.");
-                        *i = a;
-                        None
-                    }
-                })
-            } else {
-                None
-            }
-        }).next() {
+        if let Some((n, b)) = self
+            .pool
+            .iter_mut()
+            .enumerate()
+            .filter_map(|(n, i)| {
+                if i.size() >= size {
+                    // Try to split at the aligner.
+                    i.align(align).and_then(|(mut a, mut b)| {
+                        if b.size() >= size {
+                            // Override the old block.
+                            *i = a;
+                            Some((n, b))
+                        } else {
+                            // Put the split block back together and place it back in its spot.
+                            a.merge_right(&mut b).expect("Unable to merge block right.");
+                            *i = a;
+                            None
+                        }
+                    })
+                } else {
+                    None
+                }
+            })
+            .next()
+        {
             // Update the pool byte count.
             self.total_bytes -= b.size();
 
@@ -368,8 +410,11 @@ pub trait Allocator: ops::DerefMut<Target = Bookkeeper> {
             // Check consistency.
             self.check();
             debug_assert!(res.aligned_to(align), "Alignment failed.");
-            debug_assert!(res.size() == size, "Requested space does not match with the returned \
-                          block.");
+            debug_assert!(
+                res.size() == size,
+                "Requested space does not match with the returned \
+                 block."
+            );
 
             res
         } else {
@@ -489,11 +534,14 @@ pub trait Allocator: ops::DerefMut<Target = Bookkeeper> {
                 // Check consistency.
                 self.check();
                 debug_assert!(res.aligned_to(align), "Alignment failed.");
-                debug_assert!(res.size() >= new_size, "Requested space does not match with the \
-                              returned block.");
+                debug_assert!(
+                    res.size() >= new_size,
+                    "Requested space does not match with the \
+                     returned block."
+                );
 
                 res
-            },
+            }
         }
     }
 
@@ -519,8 +567,11 @@ pub trait Allocator: ops::DerefMut<Target = Bookkeeper> {
         let res = self.realloc_inplace_bound(bound, block, new_size);
 
         // Check consistency.
-        debug_assert!(res.as_ref().ok().map_or(true, |x| x.size() == new_size), "Requested space \
-                      does not match with the returned block.");
+        debug_assert!(
+            res.as_ref().ok().map_or(true, |x| x.size() == new_size),
+            "Requested space \
+             does not match with the returned block."
+        );
 
         res
     }
@@ -528,13 +579,21 @@ pub trait Allocator: ops::DerefMut<Target = Bookkeeper> {
     /// Reallocate a block on a know index bound inplace.
     ///
     /// See [`realloc_inplace`](#method.realloc_inplace.html) for more information.
-    fn realloc_inplace_bound(&mut self, ind: Range<usize>, mut block: Block, new_size: usize) -> Result<Block, Block> {
+    fn realloc_inplace_bound(
+        &mut self,
+        ind: Range<usize>,
+        mut block: Block,
+        new_size: usize,
+    ) -> Result<Block, Block> {
         // Logging.
         bk_log!(self;ind, "Try inplace reallocating {:?} to size {}.", block, new_size);
 
         /// Assertions...
-        debug_assert!(self.find(&block) == ind.start, "Block is not inserted at the appropriate \
-                      index.");
+        debug_assert!(
+            self.find(&block) == ind.start,
+            "Block is not inserted at the appropriate \
+             index."
+        );
 
         if new_size <= block.size() {
             // Shrink the block.
@@ -553,7 +612,7 @@ pub trait Allocator: ops::DerefMut<Target = Bookkeeper> {
 
             return Ok(block);
 
-            // We check if `ind` is the end of the array.
+        // We check if `ind` is the end of the array.
         } else {
             let mut mergable = false;
             if let Some(entry) = self.pool.get_mut(ind.end) {
@@ -567,7 +626,8 @@ pub trait Allocator: ops::DerefMut<Target = Bookkeeper> {
                 bk_log!(self;ind, "Merging {:?} to the right.", block);
 
                 // We'll merge it with the block at the end of the range.
-                block.merge_right(&mut self.remove_at(ind.end))
+                block
+                    .merge_right(&mut self.remove_at(ind.end))
                     .expect("Unable to merge block right, to the end of the range.");
                 // Merge succeeded.
 
@@ -603,7 +663,9 @@ pub trait Allocator: ops::DerefMut<Target = Bookkeeper> {
         bk_log!(self;ind, "Freeing {:?}.", block);
 
         // Short circuit in case of empty block.
-        if block.is_empty() { return; }
+        if block.is_empty() {
+            return;
+        }
 
         // When compiled with `security`, we zero this block.
         block.sec_zero();
@@ -614,13 +676,17 @@ pub trait Allocator: ops::DerefMut<Target = Bookkeeper> {
         }
 
         // Assertions...
-        debug_assert!(self.find(&block) == ind.start, "Block is not inserted at the appropriate \
-                      index.");
+        debug_assert!(
+            self.find(&block) == ind.start,
+            "Block is not inserted at the appropriate \
+             index."
+        );
 
         // Try to merge it with the block to the right.
         if ind.end < self.pool.len() && block.left_to(&self.pool[ind.end]) {
             // Merge the block with the rightmost block in the range.
-            block.merge_right(&mut self.remove_at(ind.end))
+            block
+                .merge_right(&mut self.remove_at(ind.end))
                 .expect("Unable to merge block right to the block at the end of the range");
 
             // The merging succeeded. We proceed to try to close in the possible gap.
@@ -652,7 +718,12 @@ pub trait Allocator: ops::DerefMut<Target = Bookkeeper> {
     /// The returned pointer is guaranteed to be aligned to `align`.
     fn alloc_external(&mut self, size: usize, align: usize) -> Block {
         // Logging.
-        bk_log!(self, "Fresh allocation of size {} with alignment {}.", size, align);
+        bk_log!(
+            self,
+            "Fresh allocation of size {} with alignment {}.",
+            size,
+            align
+        );
 
         // Break it to me!
         let res = self.alloc_fresh(size, align);
@@ -681,8 +752,11 @@ pub trait Allocator: ops::DerefMut<Target = Bookkeeper> {
             self.total_bytes += block.size();
 
             // Some assertions...
-            debug_assert!(self.pool.is_empty() || &block > self.pool.last().unwrap(), "Pushing will \
-                          make the list unsorted.");
+            debug_assert!(
+                self.pool.is_empty() || &block > self.pool.last().unwrap(),
+                "Pushing will \
+                 make the list unsorted."
+            );
 
             // We will try to simply merge it with the last block.
             if let Some(x) = self.pool.last_mut() {
@@ -706,7 +780,6 @@ pub trait Allocator: ops::DerefMut<Target = Bookkeeper> {
                     return;
                 }
             }
-
 
             // Merging failed. Note that trailing empty blocks are not allowed, hence the last block is
             // the only non-empty candidate which may be adjacent to `block`.
@@ -742,7 +815,10 @@ pub trait Allocator: ops::DerefMut<Target = Bookkeeper> {
         // Logging.
         bk_log!(self;min_cap, "Reserving {}.", min_cap);
 
-        if !self.reserving && (self.pool.capacity() < self.pool.len() + EXTRA_ELEMENTS || self.pool.capacity() < min_cap + EXTRA_ELEMENTS) {
+        if !self.reserving
+            && (self.pool.capacity() < self.pool.len() + EXTRA_ELEMENTS
+                || self.pool.capacity() < min_cap + EXTRA_ELEMENTS)
+        {
             // Reserve a little extra for performance reasons.
             // TODO: This should be moved to some new method.
             let new_cap = min_cap + EXTRA_ELEMENTS + config::extra_fresh(min_cap);
@@ -754,7 +830,8 @@ pub trait Allocator: ops::DerefMut<Target = Bookkeeper> {
             self.reserving = true;
 
             // Break it to me!
-            let new_buf = self.alloc_external(new_cap * mem::size_of::<Block>(), mem::align_of::<Block>());
+            let new_buf =
+                self.alloc_external(new_cap * mem::size_of::<Block>(), mem::align_of::<Block>());
 
             // Go back to the original state.
             self.reserving = false;
@@ -841,9 +918,16 @@ pub trait Allocator: ops::DerefMut<Target = Bookkeeper> {
         assert!(self.pool.len() >= ind, "Insertion out of bounds.");
 
         // Some assertions...
-        debug_assert!(self.pool.len() <= ind || block <= self.pool[ind], "Inserting at {} will make \
-                      the list unsorted.", ind);
-        debug_assert!(self.find(&block) == ind, "Block is not inserted at the appropriate index.");
+        debug_assert!(
+            self.pool.len() <= ind || block <= self.pool[ind],
+            "Inserting at {} will make \
+             the list unsorted.",
+            ind
+        );
+        debug_assert!(
+            self.find(&block) == ind,
+            "Block is not inserted at the appropriate index."
+        );
         debug_assert!(!block.is_empty(), "Inserting an empty block.");
 
         // Trigger the new memory event handler.
@@ -871,29 +955,31 @@ pub trait Allocator: ops::DerefMut<Target = Bookkeeper> {
             // LAST AUDIT: 2016-08-21 (Ticki).
 
             // Memmove the elements to make a gap to the new block.
-            ptr::copy(self.pool.get_unchecked(ind) as *const Block,
-                      self.pool.get_unchecked_mut(ind + 1) as *mut Block,
-                      // The gap defaults to the end of the pool.
-                      gap.unwrap_or_else(|| {
-                          // We will only extend the length if we were unable to fit it into the current length.
+            ptr::copy(
+                self.pool.get_unchecked(ind) as *const Block,
+                self.pool.get_unchecked_mut(ind + 1) as *mut Block,
+                // The gap defaults to the end of the pool.
+                gap.unwrap_or_else(|| {
+                    // We will only extend the length if we were unable to fit it into the current length.
 
-                          // Loooooooging...
-                          bk_log!(self;ind, "Block pool not long enough for shift. Extending.");
+                    // Loooooooging...
+                    bk_log!(self;ind, "Block pool not long enough for shift. Extending.");
 
-                          // Reserve space. This does not break order, due to the assumption that
-                          // `reserve` never breaks order.
-                          old_buf = unborrow!(self.reserve(self.pool.len() + 1));
+                    // Reserve space. This does not break order, due to the assumption that
+                    // `reserve` never breaks order.
+                    old_buf = unborrow!(self.reserve(self.pool.len() + 1));
 
-                          // We will move a block into reserved memory but outside of the vec's bounds. For
-                          // that reason, we push an uninitialized element to extend the length, which will
-                          // be assigned in the memcpy.
-                          let res = self.pool.push(mem::uninitialized());
+                    // We will move a block into reserved memory but outside of the vec's bounds. For
+                    // that reason, we push an uninitialized element to extend the length, which will
+                    // be assigned in the memcpy.
+                    let res = self.pool.push(mem::uninitialized());
 
-                          // Just some assertions...
-                          debug_assert!(res.is_ok(), "Push failed (buffer full).");
+                    // Just some assertions...
+                    debug_assert!(res.is_ok(), "Push failed (buffer full).");
 
-                          self.pool.len() - 1
-                      }) - ind);
+                    self.pool.len() - 1
+                }) - ind,
+            );
 
             // Update the pool byte count.
             self.total_bytes += block.size();
@@ -919,7 +1005,8 @@ pub trait Allocator: ops::DerefMut<Target = Bookkeeper> {
         let res = if ind + 1 == self.pool.len() {
             let block = self.pool[ind].pop();
             // Make sure there are no trailing empty blocks.
-            let new_len = self.pool.len() - self.pool.iter().rev().take_while(|x| x.is_empty()).count();
+            let new_len =
+                self.pool.len() - self.pool.iter().rev().take_while(|x| x.is_empty()).count();
 
             // Truncate the vector.
             self.pool.truncate(new_len);
@@ -935,7 +1022,13 @@ pub trait Allocator: ops::DerefMut<Target = Bookkeeper> {
 
             // Iterate over the pool from `ind` and down and set it to the  empty of our block.
             let skip = self.pool.len() - ind;
-            for place in self.pool.iter_mut().rev().skip(skip).take_while(|x| x.is_empty()) {
+            for place in self
+                .pool
+                .iter_mut()
+                .rev()
+                .skip(skip)
+                .take_while(|x| x.is_empty())
+            {
                 // Empty the blocks.
                 *place = empty2.empty_left();
             }

@@ -30,7 +30,8 @@ fn cross_thread_drop() {
 fn cross_thread_drop_2() {
     util::multiply(|| {
         for _ in 0..10 {
-            let bx = thread::spawn(|| Box::new(0x11FE15C001u64)).join().unwrap();
+            let bx =
+                thread::spawn(|| Box::new(0x11FE15C001u64)).join().unwrap();
 
             thread::spawn(move || {
                 util::acid(|| {

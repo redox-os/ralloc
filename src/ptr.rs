@@ -1,7 +1,7 @@
 //! Pointer wrappers.
 
-use core::ptr::NonNull;
 use core::marker;
+use core::ptr::NonNull;
 
 /// A pointer wrapper type.
 ///

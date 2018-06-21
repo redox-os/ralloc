@@ -2,7 +2,7 @@
 
 use prelude::*;
 
-use core::{slice, ops, mem, ptr};
+use core::{mem, ops, ptr, slice};
 
 use leak::Leak;
 
@@ -54,7 +54,10 @@ impl<T: Leak> Vec<T> {
         let new_cap = block.size() / mem::size_of::<T>();
 
         // Make some assertions.
-        assert!(self.len <= new_cap, "Block not large enough to cover the vector.");
+        assert!(
+            self.len <= new_cap,
+            "Block not large enough to cover the vector."
+        );
         assert!(block.aligned_to(mem::align_of::<T>()), "Block not aligned.");
 
         let old = mem::replace(self, Vec::default());
@@ -140,9 +143,7 @@ impl<T: Leak> Vec<T> {
 
     /// Yield an iterator popping from the vector.
     pub fn pop_iter(&mut self) -> PopIter<T> {
-        PopIter {
-            vec: self,
-        }
+        PopIter { vec: self }
     }
 }
 
@@ -219,7 +220,7 @@ mod test {
         let mut vec = unsafe {
             Vec::from_raw_parts(
                 Block::from_raw_parts(Pointer::new(&mut buffer[0] as *mut u8), 32),
-                16
+                16,
             )
         };
 
@@ -232,8 +233,11 @@ mod test {
         assert_eq!(&*vec, b".aaaaaaaaaaaaaaabc");
 
         unsafe {
-            assert_eq!(vec.refill(
-                Block::from_raw_parts(Pointer::new(&mut buffer[0] as *mut u8), 32)).size(),
+            assert_eq!(
+                vec.refill(Block::from_raw_parts(
+                    Pointer::new(&mut buffer[0] as *mut u8),
+                    32
+                )).size(),
                 32
             );
         }
@@ -246,13 +250,14 @@ mod test {
         assert_eq!(vec.pop().unwrap(), b'_');
         vec.push(b'@').unwrap();
 
-
         vec.push(b'!').unwrap_err();
 
         assert_eq!(&*vec, b".aaaaaaaaaaaaaaabc_____________@");
         assert_eq!(vec.capacity(), 32);
 
-        for _ in 0..32 { vec.pop().unwrap(); }
+        for _ in 0..32 {
+            vec.pop().unwrap();
+        }
 
         assert!(vec.pop().is_none());
         assert!(vec.pop().is_none());

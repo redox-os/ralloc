@@ -2,8 +2,8 @@ extern crate ralloc;
 
 mod util;
 
-use std::thread;
 use std::sync::mpsc;
+use std::thread;
 
 #[test]
 fn mpsc_queue() {

@@ -8,7 +8,8 @@ fn simple_vec() {
         let mut vec = Vec::new();
 
         for i in 0..0xFFFF {
-            // We're going to annoy the allocator by allocating a small chunk, after which we push.
+            // We're going to annoy the allocator by allocating a small chunk,
+            // after which we push.
             let _bx = Box::new(4);
             vec.push(i);
         }
@@ -30,5 +31,4 @@ fn simple_vec() {
             assert_eq!(vec[i], 0);
         }
     });
-
 }
