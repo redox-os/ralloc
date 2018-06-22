@@ -6,22 +6,25 @@ use prelude::*;
 
 use core::{mem, ops};
 
+use bookkeeper::{self, Allocator, Bookkeeper};
 use {brk, sync};
-use bookkeeper::{self, Bookkeeper, Allocator};
 
 use shim::config;
 
 #[cfg(feature = "tls")]
 use tls;
 
-/// Alias for the wrapper type of the thread-local variable holding the local allocator.
+/// Alias for the wrapper type of the thread-local variable holding the local
+/// allocator.
 #[cfg(feature = "tls")]
-type ThreadLocalAllocator = MoveCell<Option<LazyInit<fn() -> LocalAllocator, LocalAllocator>>>;
+type ThreadLocalAllocator =
+    MoveCell<Option<LazyInit<fn() -> LocalAllocator, LocalAllocator>>>;
 
 /// The global default allocator.
 // TODO: Remove these filthy function pointers.
-static GLOBAL_ALLOCATOR: sync::Mutex<LazyInit<fn() -> GlobalAllocator, GlobalAllocator>> =
-    sync::Mutex::new(LazyInit::new(GlobalAllocator::init));
+static GLOBAL_ALLOCATOR: sync::Mutex<
+    LazyInit<fn() -> GlobalAllocator, GlobalAllocator>,
+> = sync::Mutex::new(LazyInit::new(GlobalAllocator::init));
 #[cfg(feature = "tls")]
 tls! {
     /// The thread-local allocator.
@@ -30,18 +33,19 @@ tls! {
 
 /// Temporarily get the allocator.
 ///
-/// This is simply to avoid repeating ourself, so we let this take care of the hairy stuff:
+/// This is simply to avoid repeating ourself, so we let this take care of the
+/// hairy stuff:
 ///
 /// 1. Initialize the allocator if needed.
-/// 2. If the allocator is not yet initialized, fallback to the global allocator.
-/// 3. Unlock/move temporarily out of reference.
+/// 2. If the allocator is not yet initialized, fallback to the global
+/// allocator. 3. Unlock/move temporarily out of reference.
 ///
-/// This is a macro due to the lack of generic closure, which makes it impossible to have one
-/// closure for both cases (global and local).
-// TODO: Instead of falling back to the global allocator, the thread dtor should be set such that
-// it run after the TLS keys that might be declared.
+/// This is a macro due to the lack of generic closure, which makes it
+/// impossible to have one closure for both cases (global and local).
+// TODO: Instead of falling back to the global allocator, the thread dtor
+// should be set such that it run after the TLS keys that might be declared.
 macro_rules! get_allocator {
-    (|$v:ident| $b:expr) => {{
+    (| $v:ident | $b:expr) => {{
         // Get the thread allocator, if TLS is enabled
         #[cfg(feature = "tls")]
         {
@@ -58,9 +62,12 @@ macro_rules! get_allocator {
 
                     res
                 } else {
-                    // The local allocator seems to have been deinitialized, for this reason we fallback to
-                    // the global allocator.
-                    log!(WARNING, "Accessing the allocator after deinitialization of the local allocator.");
+                    // The local allocator seems to have been deinitialized, for this reason we
+                    // fallback to the global allocator.
+                    log!(
+                        WARNING,
+                        "Accessing the allocator after deinitialization of the local allocator."
+                    );
 
                     // Lock the global allocator.
                     let mut guard = GLOBAL_ALLOCATOR.lock();
@@ -82,7 +89,7 @@ macro_rules! get_allocator {
             let $v = guard.get();
             $b
         }
-    }}
+    }};
 }
 
 /// Derives `Deref` and `DerefMut` to the `inner` field.
@@ -108,9 +115,9 @@ macro_rules! derive_deref {
 
 /// Global SBRK-based allocator.
 ///
-/// This will extend the data segment whenever new memory is needed. Since this includes leaving
-/// userspace, this shouldn't be used when other allocators are available (i.e. the bookkeeper is
-/// local).
+/// This will extend the data segment whenever new memory is needed. Since this
+/// includes leaving userspace, this shouldn't be used when other allocators
+/// are available (i.e. the bookkeeper is local).
 struct GlobalAllocator {
     // The inner bookkeeper.
     inner: Bookkeeper,
@@ -123,8 +130,10 @@ impl GlobalAllocator {
         log!(NOTE, "Initializing the global allocator.");
 
         // The initial acquired segment.
-        let (aligner, initial_segment, excessive) =
-            brk::lock().canonical_brk(4 * bookkeeper::EXTRA_ELEMENTS * mem::size_of::<Block>(), mem::align_of::<Block>());
+        let (aligner, initial_segment, excessive) = brk::lock().canonical_brk(
+            8 * bookkeeper::EXTRA_ELEMENTS * mem::size_of::<Block>(),
+            mem::align_of::<Block>(),
+        );
 
         // Initialize the new allocator.
         let mut res = GlobalAllocator {
@@ -149,11 +158,13 @@ impl Allocator for GlobalAllocator {
     #[inline]
     fn alloc_fresh(&mut self, size: usize, align: usize) -> Block {
         // Obtain what you need.
-        let (alignment_block, res, excessive) = brk::lock().canonical_brk(size, align);
+        let (alignment_block, res, excessive) =
+            brk::lock().canonical_brk(size, align);
 
-        // Add it to the list. This will not change the order, since the pointer is higher than all
-        // the previous blocks (BRK extends the data segment). Although, it is worth noting that
-        // the stack is higher than the program break.
+        // Add it to the list. This will not change the order, since the
+        // pointer is higher than all the previous blocks (BRK extends
+        // the data segment). Although, it is worth noting that the
+        // stack is higher than the program break.
         self.push(alignment_block);
         self.push(excessive);
 
@@ -165,7 +176,9 @@ impl Allocator for GlobalAllocator {
             // memtrim the fack outta 'em.
 
             // Pop the last block.
-            let block = self.pop().expect("The byte count on the global allocator is invalid.");
+            let block = self
+                .pop()
+                .expect("The byte count on the global allocator is invalid.");
 
             // Check if the memtrim is worth it.
             if block.size() >= config::OS_MEMTRIM_WORTHY {
@@ -179,9 +192,10 @@ impl Allocator for GlobalAllocator {
                     self.push(block);
                 }
 
-                // Note that this block is the only block next to the program break, due to the
-                // segments being as long as possible. For that reason, repeating to push and
-                // release would fail.
+            // Note that this block is the only block next to the program
+            // break, due to the segments being as long as
+            // possible. For that reason, repeating to push and
+            // release would fail.
             } else {
                 /// Logging...
                 log!(WARNING, "Memtrimming for the global allocator failed.");
@@ -196,7 +210,8 @@ impl Allocator for GlobalAllocator {
 
 /// A local allocator.
 ///
-/// This acquires memory from the upstream (global) allocator, which is protected by a `Mutex`.
+/// This acquires memory from the upstream (global) allocator, which is
+/// protected by a `Mutex`.
 #[cfg(feature = "tls")]
 pub struct LocalAllocator {
     // The inner bookkeeper.
@@ -211,36 +226,45 @@ impl LocalAllocator {
         /// The destructor of the local allocator.
         ///
         /// This will simply free everything to the global allocator.
-        extern fn dtor(alloc: &ThreadLocalAllocator) {
+        extern "C" fn dtor(alloc: &ThreadLocalAllocator) {
             /// Logging...
             log!(NOTE, "Deinitializing and freeing the local allocator.");
 
-            // This is important! The thread destructors guarantee no other, and thus one could use the
-            // allocator _after_ this destructor have been finished. In fact, this is a real problem,
-            // and happens when using `Arc` and terminating the main thread, for this reason we place
-            // `None` as a permanent marker indicating that the allocator is deinitialized. After such
-            // a state is in place, all allocation calls will be redirected to the global allocator,
-            // which is of course still usable at this moment.
-            let alloc = alloc.replace(None).expect("Thread-local allocator is already freed.");
+            // This is important! The thread destructors guarantee no other,
+            // and thus one could use the allocator _after_ this
+            // destructor have been finished. In fact, this is a
+            // real problem, and happens when using `Arc` and
+            // terminating the main thread, for this reason we place
+            // `None` as a permanent marker indicating that the allocator is
+            // deinitialized. After such a state is in place, all
+            // allocation calls will be redirected to the global
+            // allocator, which is of course still usable at this
+            // moment.
+            let alloc = alloc
+                .replace(None)
+                .expect("Thread-local allocator is already freed.");
 
             // Lock the global allocator.
             let mut global_alloc = GLOBAL_ALLOCATOR.lock();
             let global_alloc = global_alloc.get();
 
-            // TODO: we know this is sorted, so we could abuse that fact to faster insertion in the
-            // global allocator.
+            // TODO: we know this is sorted, so we could abuse that fact to
+            // faster insertion in the global allocator.
 
-            alloc.into_inner().inner.for_each(move |block| global_alloc.free(block));
+            alloc
+                .into_inner()
+                .inner
+                .for_each(move |block| global_alloc.free(block));
         }
 
         /// Logging...
         log!(NOTE, "Initializing the local allocator.");
 
         // The initial acquired segment.
-        let initial_segment = GLOBAL_ALLOCATOR
-            .lock()
-            .get()
-            .alloc(4 * bookkeeper::EXTRA_ELEMENTS * mem::size_of::<Block>(), mem::align_of::<Block>());
+        let initial_segment = GLOBAL_ALLOCATOR.lock().get().alloc(
+            8 * bookkeeper::EXTRA_ELEMENTS * mem::size_of::<Block>(),
+            mem::align_of::<Block>(),
+        );
 
         unsafe {
             // LAST AUDIT: 2016-08-21 (Ticki).
@@ -262,17 +286,19 @@ derive_deref!(LocalAllocator, Bookkeeper);
 impl Allocator for LocalAllocator {
     #[inline]
     fn alloc_fresh(&mut self, size: usize, align: usize) -> Block {
-        // Get the block from the global allocator. Please note that we cannot canonicalize `size`,
-        // due to freeing excessive blocks would change the order.
+        // Get the block from the global allocator. Please note that we cannot
+        // canonicalize `size`, due to freeing excessive blocks would change
+        // the order.
         GLOBAL_ALLOCATOR.lock().get().alloc(size, align)
     }
 
     #[inline]
     fn on_new_memory(&mut self) {
-        // The idea is to free memory to the global allocator to unify small stubs and avoid
-        // fragmentation and thread accumulation.
+        // The idea is to free memory to the global allocator to unify small
+        // stubs and avoid fragmentation and thread accumulation.
         if self.total_bytes() < config::FRAGMENTATION_SCALE * self.len()
-           || self.total_bytes() > config::LOCAL_MEMTRIM_LIMIT {
+            || self.total_bytes() > config::LOCAL_MEMTRIM_LIMIT
+        {
             // Log stuff.
             log!(NOTE, "Memtrimming the local allocator.");
 
@@ -285,7 +311,9 @@ impl Allocator for LocalAllocator {
                 global_alloc.free(block);
 
                 // Memtrim 'till we won't memtrim anymore.
-                if self.total_bytes() < config::LOCAL_MEMTRIM_STOP { break; }
+                if self.total_bytes() < config::LOCAL_MEMTRIM_STOP {
+                    break;
+                }
             }
         }
     }
@@ -298,20 +326,25 @@ impl Allocator for LocalAllocator {
 /// The OOM handler handles out-of-memory conditions.
 #[inline]
 pub fn alloc(size: usize, align: usize) -> *mut u8 {
-    log!(CALL, "Allocating buffer of size {} (align {}).", size, align);
+    log!(
+        CALL,
+        "Allocating buffer of size {} (align {}).",
+        size,
+        align
+    );
 
     get_allocator!(|alloc| Pointer::from(alloc.alloc(size, align)).get())
 }
 
 /// Free a buffer.
 ///
-/// Note that this do not have to be a buffer allocated through ralloc. The only requirement is
-/// that it is not used after the free.
+/// Note that this do not have to be a buffer allocated through ralloc. The
+/// only requirement is that it is not used after the free.
 ///
 /// # Important!
 ///
-/// You should only allocate buffers allocated through `ralloc`. Anything else is considered
-/// invalid.
+/// You should only allocate buffers allocated through `ralloc`. Anything else
+/// is considered invalid.
 ///
 /// # Errors
 ///
@@ -319,26 +352,28 @@ pub fn alloc(size: usize, align: usize) -> *mut u8 {
 ///
 /// # Safety
 ///
-/// Rust assume that the allocation symbols returns correct values. For this reason, freeing
-/// invalid pointers might introduce memory unsafety.
+/// Rust assume that the allocation symbols returns correct values. For this
+/// reason, freeing invalid pointers might introduce memory unsafety.
 ///
 /// Secondly, freeing an used buffer can introduce use-after-free.
 #[inline]
 pub unsafe fn free(ptr: *mut u8, size: usize) {
     log!(CALL, "Freeing buffer of size {}.", size);
 
-    get_allocator!(|alloc| alloc.free(Block::from_raw_parts(Pointer::new(ptr), size)))
+    get_allocator!(
+        |alloc| alloc.free(Block::from_raw_parts(Pointer::new(ptr), size))
+    )
 }
 
 /// Reallocate memory.
 ///
-/// Reallocate the buffer starting at `ptr` with size `old_size`, to a buffer starting at the
-/// returned pointer with size `size`.
+/// Reallocate the buffer starting at `ptr` with size `old_size`, to a buffer
+/// starting at the returned pointer with size `size`.
 ///
 /// # Important!
 ///
-/// You should only reallocate buffers allocated through `ralloc`. Anything else is considered
-/// invalid.
+/// You should only reallocate buffers allocated through `ralloc`. Anything
+/// else is considered invalid.
 ///
 /// # Errors
 ///
@@ -346,39 +381,61 @@ pub unsafe fn free(ptr: *mut u8, size: usize) {
 ///
 /// # Safety
 ///
-/// Due to being able to potentially memcpy an arbitrary buffer, as well as shrinking a buffer,
-/// this is marked unsafe.
+/// Due to being able to potentially memcpy an arbitrary buffer, as well as
+/// shrinking a buffer, this is marked unsafe.
 #[inline]
-pub unsafe fn realloc(ptr: *mut u8, old_size: usize, size: usize, align: usize) -> *mut u8 {
-    log!(CALL, "Reallocating buffer of size {} to new size {}.", old_size, size);
+pub unsafe fn realloc(
+    ptr: *mut u8,
+    old_size: usize,
+    size: usize,
+    align: usize,
+) -> *mut u8 {
+    log!(
+        CALL,
+        "Reallocating buffer of size {} to new size {}.",
+        old_size,
+        size
+    );
 
-    get_allocator!(|alloc| {
-        Pointer::from(alloc.realloc(
-            Block::from_raw_parts(Pointer::new(ptr), old_size),
-            size,
-            align
-        )).get()
-    })
+    get_allocator!(|alloc| Pointer::from(alloc.realloc(
+        Block::from_raw_parts(Pointer::new(ptr), old_size),
+        size,
+        align
+    )).get())
 }
 
 /// Try to reallocate the buffer _inplace_.
 ///
-/// In case of success, return the new buffer's size. On failure, return the old size.
+/// In case of success, return the new buffer's size. On failure, return the
+/// old size.
 ///
 /// This can be used to shrink (truncate) a buffer as well.
 ///
 /// # Safety
 ///
-/// Due to being able to shrink (and thus free) the buffer, this is marked unsafe.
+/// Due to being able to shrink (and thus free) the buffer, this is marked
+/// unsafe.
 #[inline]
-pub unsafe fn realloc_inplace(ptr: *mut u8, old_size: usize, size: usize) -> Result<(), ()> {
-    log!(CALL, "Inplace reallocating buffer of size {} to new size {}.", old_size, size);
+pub unsafe fn realloc_inplace(
+    ptr: *mut u8,
+    old_size: usize,
+    size: usize,
+) -> Result<(), ()> {
+    log!(
+        CALL,
+        "Inplace reallocating buffer of size {} to new size {}.",
+        old_size,
+        size
+    );
 
     get_allocator!(|alloc| {
-        if alloc.realloc_inplace(
-            Block::from_raw_parts(Pointer::new(ptr), old_size),
-            size
-        ).is_ok() {
+        if alloc
+            .realloc_inplace(
+                Block::from_raw_parts(Pointer::new(ptr), old_size),
+                size,
+            )
+            .is_ok()
+        {
             Ok(())
         } else {
             Err(())

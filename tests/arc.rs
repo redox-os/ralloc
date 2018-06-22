@@ -1,4 +1,5 @@
-//! This test is a more subtle one. It is one which can hit thread destructors unexpectedly.
+//! This test is a more subtle one. It is one which can hit thread destructors
+//! unexpectedly.
 
 extern crate ralloc;
 

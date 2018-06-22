@@ -125,13 +125,13 @@ macro_rules! debug_assert {
 #[cfg(feature = "write")]
 #[macro_export]
 macro_rules! assert_eq {
-    ($left:expr, $right:expr) => ({
+    ($left:expr, $right:expr) => {{
         // We evaluate _once_.
         let left = &$left;
         let right = &$right;
 
         assert!(left == right, "(left: '{:?}', right: '{:?}')", left, right)
-    })
+    }};
 }
 
 /// Top-secret module.
@@ -139,8 +139,8 @@ macro_rules! assert_eq {
 pub mod internal {
     use prelude::*;
 
-    use core::fmt;
     use core::cell::Cell;
+    use core::fmt;
     use core::ops::Range;
 
     use shim::config;
@@ -179,7 +179,11 @@ pub mod internal {
 
     impl fmt::Write for LogWriter {
         fn write_str(&mut self, s: &str) -> fmt::Result {
-            if config::log(s) == !0 { Err(fmt::Error) } else { Ok(()) }
+            if config::log(s) == !0 {
+                Err(fmt::Error)
+            } else {
+                Ok(())
+            }
         }
     }
 
@@ -254,9 +258,13 @@ pub mod internal {
     }
 
     impl Cursor for () {
-        fn at(&self, _: &mut fmt::Formatter, _: usize) -> fmt::Result { Ok(()) }
+        fn at(&self, _: &mut fmt::Formatter, _: usize) -> fmt::Result {
+            Ok(())
+        }
 
-        fn after(&self, _: &mut fmt::Formatter) -> fmt::Result { Ok(()) }
+        fn after(&self, _: &mut fmt::Formatter) -> fmt::Result {
+            Ok(())
+        }
     }
 
     impl IntoCursor for () {
@@ -286,16 +294,16 @@ pub mod internal {
             Ok(())
         }
 
-        fn after(&self, _: &mut fmt::Formatter) -> fmt::Result { Ok(()) }
+        fn after(&self, _: &mut fmt::Formatter) -> fmt::Result {
+            Ok(())
+        }
     }
 
     impl IntoCursor for Range<usize> {
         type Cursor = RangeCursor;
 
         fn into_cursor(self) -> RangeCursor {
-            RangeCursor {
-                range: self,
-            }
+            RangeCursor { range: self }
         }
     }
 
@@ -341,7 +349,6 @@ pub mod internal {
     }
 
     /// Check if this log level is enabled.
-    #[allow(absurd_extreme_comparisons)]
     #[inline]
     pub fn level(lv: u8) -> bool {
         lv >= config::MIN_LOG_LEVEL

@@ -1,6 +1,6 @@
 //! Test automation.
 
-use std::{thread, mem};
+use std::{mem, thread};
 
 /// Magic trait for boxed `FnOnce`s.
 ///
@@ -11,11 +11,15 @@ trait FnBox {
 }
 
 impl<F: FnOnce()> FnBox for F {
-    fn call_box(self: Box<Self>) { (*self)() }
+    fn call_box(self: Box<Self>) {
+        (*self)()
+    }
 }
 
 /// Like `std::thread::spawn`, but without the closure bounds.
-unsafe fn spawn_unsafe<'a, F: FnOnce() + Send + 'a>(func: F) -> thread::JoinHandle<()> {
+unsafe fn spawn_unsafe<'a, F: FnOnce() + Send + 'a>(
+    func: F,
+) -> thread::JoinHandle<()> {
     let closure: Box<FnBox + 'a> = Box::new(func);
     let closure: Box<FnBox + Send> = mem::transmute(closure);
     thread::spawn(move || closure.call_box())
@@ -46,12 +50,14 @@ pub fn multiply<F: Fn() + Sync + Send + 'static>(func: F) {
 
 /// Wrap a block in acid tests.
 ///
-/// This performs a number of temporary allocations to try to detect inconsistency.
+/// This performs a number of temporary allocations to try to detect
+/// inconsistency.
 ///
-/// The basic idea is that if the allocator is broken, it might allocate the same memory twice, or
-/// corrupt when allocating. Thus, we allocate some temporary segment and override it. This way we
-/// might be able to detect memory corruption through asserting memory consistency after the
-/// closure is completed.
+/// The basic idea is that if the allocator is broken, it might allocate the
+/// same memory twice, or corrupt when allocating. Thus, we allocate some
+/// temporary segment and override it. This way we might be able to detect
+/// memory corruption through asserting memory consistency after the closure is
+/// completed.
 #[allow(dead_code)]
 pub fn acid<F: FnOnce()>(func: F) {
     let mut vec = vec!["something", "yep", "yup"];
@@ -70,7 +76,19 @@ pub fn acid<F: FnOnce()>(func: F) {
     vec.push("heyaya");
     *bx = 55;
 
-    assert_eq!(vec, ["something", "yep", "yup", "lol", "lulz", "we", "are", "heyaya"]);
+    assert_eq!(
+        vec,
+        [
+            "something",
+            "yep",
+            "yup",
+            "lol",
+            "lulz",
+            "we",
+            "are",
+            "heyaya"
+        ]
+    );
     assert_eq!(*bx, 55);
     assert_eq!(*abc, "abc");
 }

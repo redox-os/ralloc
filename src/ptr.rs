@@ -1,7 +1,7 @@
 //! Pointer wrappers.
 
-use core::nonzero::NonZero;
-use core::{ops, marker};
+use core::marker;
+use core::ptr::NonNull;
 
 /// A pointer wrapper type.
 ///
@@ -10,7 +10,7 @@ use core::{ops, marker};
 #[derive(PartialEq, Eq, Debug, Clone)]
 pub struct Pointer<T> {
     /// The internal pointer.
-    ptr: NonZero<*mut T>,
+    ptr: NonNull<T>,
     /// Associated phantom data.
     ///
     /// This indicates that we _own_ T.
@@ -30,7 +30,7 @@ impl<T> Pointer<T> {
         debug_assert!(!ptr.is_null(), "Null pointer!");
 
         Pointer {
-            ptr: NonZero::new_unchecked(ptr),
+            ptr: NonNull::new_unchecked(ptr),
             _phantom: marker::PhantomData,
         }
     }
@@ -45,7 +45,7 @@ impl<T> Pointer<T> {
                 // LAST AUDIT: 2016-08-21 (Ticki).
 
                 // 0x1 is non-zero.
-                NonZero::new_unchecked(0x1 as *mut T)
+                NonNull::new_unchecked(0x1 as *mut T)
             },
             _phantom: marker::PhantomData,
         }
@@ -61,7 +61,7 @@ impl<T> Pointer<T> {
                 // LAST AUDIT: 2016-08-21 (Ticki).
 
                 // Casting the pointer will preserve its nullable state.
-                NonZero::new_unchecked(self.get() as *mut U)
+                NonNull::new_unchecked(self.get() as *mut U)
             },
             _phantom: marker::PhantomData,
         }
@@ -76,11 +76,11 @@ impl<T> Pointer<T> {
     /// This is unsafe, due to OOB offsets being undefined behavior.
     #[inline]
     pub unsafe fn offset(self, diff: isize) -> Pointer<T> {
-        Pointer::new(self.ptr.get().offset(diff))
+        Pointer::new(self.ptr.as_ptr().offset(diff))
     }
 
     pub fn get(&self) -> *mut T {
-        self.ptr.get()
+        self.ptr.as_ptr()
     }
 }
 

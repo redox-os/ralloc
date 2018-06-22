@@ -1,8 +1,8 @@
 //! Synchronization primitives.
 
 use core::cell::UnsafeCell;
-use core::sync::atomic::{self, AtomicBool};
 use core::ops;
+use core::sync::atomic::{self, AtomicBool};
 
 use shim;
 
@@ -37,7 +37,10 @@ impl<T> Mutex<T> {
     pub fn lock(&self) -> MutexGuard<T> {
         // Lock the mutex.
         #[cfg(not(feature = "unsafe_no_mutex_lock"))]
-        while self.locked.compare_and_swap(false, true, atomic::Ordering::SeqCst) {
+        while self
+            .locked
+            .compare_and_swap(false, true, atomic::Ordering::SeqCst)
+        {
             // ,___,
             // {O,o}
             // |)``)
@@ -45,9 +48,7 @@ impl<T> Mutex<T> {
             shim::syscalls::sched_yield();
         }
 
-        MutexGuard {
-            mutex: self,
-        }
+        MutexGuard { mutex: self }
     }
 }
 

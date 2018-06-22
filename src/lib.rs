@@ -11,19 +11,14 @@
 
 #![cfg_attr(feature = "clippy", feature(plugin))]
 #![cfg_attr(feature = "clippy", plugin(clippy))]
-
 #![no_std]
+#![feature(
+    allocator_api, const_fn, core_intrinsics, stmt_expr_attributes, optin_builtin_traits,
+    type_ascription, thread_local, linkage, try_from, const_unsafe_cell_new, const_atomic_bool_new,
+    const_nonzero_new, const_atomic_ptr_new
+)]
+#![warn(missing_docs)]
 
-#![feature(alloc, allocator_api, const_fn, core_intrinsics, stmt_expr_attributes, drop_types_in_const,
-           nonzero, optin_builtin_traits, type_ascription, thread_local, linkage,
-           try_from, const_unsafe_cell_new, const_atomic_bool_new, const_nonzero_new,
-           const_atomic_ptr_new)]
-#![warn(missing_docs, cast_precision_loss, cast_sign_loss, cast_possible_wrap,
-        cast_possible_truncation, filter_map, if_not_else, items_after_statements,
-        invalid_upcast_comparisons, mutex_integer, nonminimal_bool, shadow_same, shadow_unrelated,
-        single_match_else, string_add, string_add_assign, wrong_pub_self_convention)]
-
-extern crate alloc;
 extern crate ralloc_shim as shim;
 
 #[macro_use]
@@ -48,7 +43,9 @@ mod ptr;
 mod sync;
 mod vec;
 
-use alloc::heap::{Alloc, AllocErr, Layout, CannotReallocInPlace};
+use core::alloc::GlobalAlloc;
+use core::alloc::{Alloc, AllocErr, CannotReallocInPlace, Layout};
+use core::ptr::NonNull;
 
 pub use allocator::{alloc, free, realloc, realloc_inplace};
 pub use brk::sbrk;
@@ -56,31 +53,57 @@ pub use fail::set_oom_handler;
 #[cfg(feature = "tls")]
 pub use fail::set_thread_oom_handler;
 
+/// The rallocator
 pub struct Allocator;
 
 unsafe impl<'a> Alloc for &'a Allocator {
-    unsafe fn alloc(&mut self, layout: Layout) -> Result<*mut u8, AllocErr> {
-        Ok(allocator::alloc(layout.size(), layout.align()))
+    unsafe fn alloc(&mut self, layout: Layout) -> Result<NonNull<u8>, AllocErr> {
+        let ptr = allocator::alloc(layout.size(), layout.align());
+        if ptr.is_null() {
+            Err(AllocErr)
+        } else {
+            Ok(NonNull::new_unchecked(ptr))
+        }
     }
 
-    unsafe fn dealloc(&mut self, ptr: *mut u8, layout: Layout) {
-        allocator::free(ptr, layout.size());
+    unsafe fn dealloc(&mut self, ptr: NonNull<u8>, layout: Layout) {
+        allocator::free(ptr.as_ptr(), layout.size());
     }
 
-    unsafe fn realloc(&mut self, ptr: *mut u8, layout: Layout, new_layout: Layout) -> Result<*mut u8, AllocErr> {
-        Ok(allocator::realloc(ptr, layout.size(), new_layout.size(), new_layout.align()))
+    unsafe fn realloc(
+        &mut self,
+        ptr: NonNull<u8>,
+        layout: Layout,
+        new_size: usize,
+    ) -> Result<NonNull<u8>, AllocErr> {
+        let ptr = allocator::realloc(ptr.as_ptr(), layout.size(), new_size, layout.align());
+        if ptr.is_null() {
+            Err(AllocErr)
+        } else {
+            Ok(NonNull::new_unchecked(ptr))
+        }
     }
 
-    unsafe fn grow_in_place(&mut self, ptr: *mut u8, layout: Layout, new_layout: Layout) -> Result<(), CannotReallocInPlace> {
-        if allocator::realloc_inplace(ptr, layout.size(), new_layout.size()).is_ok() {
+    unsafe fn grow_in_place(
+        &mut self,
+        ptr: NonNull<u8>,
+        layout: Layout,
+        new_size: usize,
+    ) -> Result<(), CannotReallocInPlace> {
+        if allocator::realloc_inplace(ptr.as_ptr(), layout.size(), new_size).is_ok() {
             Ok(())
         } else {
             Err(CannotReallocInPlace)
         }
     }
 
-    unsafe fn shrink_in_place(&mut self, ptr: *mut u8, layout: Layout, new_layout: Layout) -> Result<(), CannotReallocInPlace> {
-        if allocator::realloc_inplace(ptr, layout.size(), new_layout.size()).is_ok() {
+    unsafe fn shrink_in_place(
+        &mut self,
+        ptr: NonNull<u8>,
+        layout: Layout,
+        new_size: usize,
+    ) -> Result<(), CannotReallocInPlace> {
+        if allocator::realloc_inplace(ptr.as_ptr(), layout.size(), new_size).is_ok() {
             Ok(())
         } else {
             Err(CannotReallocInPlace)
@@ -90,5 +113,14 @@ unsafe impl<'a> Alloc for &'a Allocator {
     fn usable_size(&self, layout: &Layout) -> (usize, usize) {
         // Yay! It matches exactly.
         (layout.size(), layout.size())
+    }
+}
+
+unsafe impl GlobalAlloc for Allocator {
+    unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
+        allocator::alloc(layout.size(), layout.align())
+    }
+    unsafe fn dealloc(&self, ptr: *mut u8, layout: Layout) {
+        allocator::free(ptr, layout.size());
     }
 }

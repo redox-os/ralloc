@@ -3,8 +3,8 @@
 extern crate ralloc;
 extern crate test;
 
-use std::thread;
 use std::sync::mpsc;
+use std::thread;
 
 #[bench]
 fn bench_mpsc(b: &mut test::Bencher) {

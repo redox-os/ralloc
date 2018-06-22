@@ -2,8 +2,8 @@
 
 use prelude::*;
 
-use core::sync::atomic::{self, AtomicPtr};
 use core::mem;
+use core::sync::atomic::{self, AtomicPtr};
 
 use shim::config;
 

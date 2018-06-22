@@ -4,19 +4,17 @@
 
 use prelude::*;
 
-use core::ptr;
 use core::convert::TryInto;
+use core::ptr;
 
-use shim::{syscalls, config};
+use shim::{config, syscalls};
 
-use {sync, fail};
+use {fail, sync};
 
 /// The BRK mutex.
 ///
 /// This is used for avoiding data races in multiple allocator.
-static BRK_MUTEX: Mutex<BrkState> = Mutex::new(BrkState {
-    current_brk: None,
-});
+static BRK_MUTEX: Mutex<BrkState> = Mutex::new(BrkState { current_brk: None });
 
 /// A cache of the BRK state.
 ///
@@ -73,7 +71,6 @@ impl BrkLock {
     /// Safely release memory to the OS.
     ///
     /// If failed, we return the memory.
-    #[allow(cast_possible_wrap)]
     pub fn release(&mut self, block: Block) -> Result<(), Block> {
         // Check if we are actually next to the program break.
         if self.current_brk() == Pointer::from(block.empty_right()) {
@@ -109,9 +106,12 @@ impl BrkLock {
         if let Some(ref cur) = self.state.current_brk {
             let res = cur.clone();
             // Make sure that the break is set properly (i.e. there is no libc interference).
-            debug_assert!(res == current_brk(), "The cached program break is out of sync with the \
-                          actual program break. Are you interfering with BRK? If so, prefer the \
-                          provided 'sbrk' instead, then.");
+            debug_assert!(
+                res == current_brk(),
+                "The cached program break is out of sync with the \
+                 actual program break. Are you interfering with BRK? If so, prefer the \
+                 provided 'sbrk' instead, then."
+            );
 
             return res;
         }
@@ -147,17 +147,22 @@ impl BrkLock {
             Block::from_raw_parts(
                 // Important! The conversion is failable to avoid arithmetic overflow-based
                 // attacks.
-                self.sbrk(brk_size.try_into().unwrap()).unwrap_or_else(|()| fail::oom()),
+                self.sbrk(brk_size.try_into().unwrap())
+                    .unwrap_or_else(|()| fail::oom()),
                 brk_size,
             )
-        }.align(align).unwrap();
+        }.align(align)
+            .unwrap();
 
         // Split the block to leave the excessive space.
         let (res, excessive) = rest.split(size);
 
         // Make some assertions.
         debug_assert!(res.aligned_to(align), "Alignment failed.");
-        debug_assert!(res.size() + alignment_block.size() + excessive.size() == brk_size, "BRK memory leak.");
+        debug_assert!(
+            res.size() + alignment_block.size() + excessive.size() == brk_size,
+            "BRK memory leak."
+        );
 
         (alignment_block, res, excessive)
     }
@@ -181,8 +186,11 @@ pub fn lock() -> BrkLock {
 /// # Failure
 ///
 /// On failure the maximum pointer (`!0 as *mut u8`) is returned.
-pub unsafe extern fn sbrk(size: isize) -> *mut u8 {
-    lock().sbrk(size).unwrap_or_else(|()| Pointer::new(!0 as *mut u8)).get()
+pub unsafe extern "C" fn sbrk(size: isize) -> *mut u8 {
+    lock()
+        .sbrk(size)
+        .unwrap_or_else(|()| Pointer::new(!0 as *mut u8))
+        .get()
 }
 
 /// Get the current program break.
