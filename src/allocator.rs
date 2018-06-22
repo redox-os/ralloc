@@ -131,7 +131,7 @@ impl GlobalAllocator {
 
         // The initial acquired segment.
         let (aligner, initial_segment, excessive) = brk::lock().canonical_brk(
-            4 * bookkeeper::EXTRA_ELEMENTS * mem::size_of::<Block>(),
+            8 * bookkeeper::EXTRA_ELEMENTS * mem::size_of::<Block>(),
             mem::align_of::<Block>(),
         );
 
@@ -262,7 +262,7 @@ impl LocalAllocator {
 
         // The initial acquired segment.
         let initial_segment = GLOBAL_ALLOCATOR.lock().get().alloc(
-            4 * bookkeeper::EXTRA_ELEMENTS * mem::size_of::<Block>(),
+            8 * bookkeeper::EXTRA_ELEMENTS * mem::size_of::<Block>(),
             mem::align_of::<Block>(),
         );
 
