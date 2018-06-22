@@ -20,5 +20,6 @@ image: "rust:latest"
 # Use cargo to test the project
 test:cargo:
   script:
+  - rustup toolchain install nightly
   - rustc --version && cargo --version      # Print version info for debugging
   - cargo +nightly test --all --verbose
