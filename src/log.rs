@@ -349,7 +349,6 @@ pub mod internal {
     }
 
     /// Check if this log level is enabled.
-    #[allow(absurd_extreme_comparisons)]
     #[inline]
     pub fn level(lv: u8) -> bool {
         lv >= config::MIN_LOG_LEVEL
