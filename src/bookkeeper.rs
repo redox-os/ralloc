@@ -690,14 +690,20 @@ pub trait Allocator: ops::DerefMut<Target = Bookkeeper> {
                 .expect("Unable to merge block right to the block at the end of the range");
 
             // The merging succeeded. We proceed to try to close in the possible gap.
+            let size = block.size();
             if ind.start != 0 && self.pool[ind.start - 1].merge_right(&mut block).is_ok() {
-                // Check consistency.
-                self.check();
-
-                return;
+                self.total_bytes += size;
             }
+            // Check consistency.
+            self.check();
+
+            return;
         // Dammit, let's try to merge left.
-        } else if ind.start != 0 && self.pool[ind.start - 1].merge_right(&mut block).is_ok() {
+        } else if ind.start != 0 && self.pool[ind.start - 1].left_to(&block) {
+            let size = block.size();
+            if self.pool[ind.start - 1].merge_right(&mut block).is_ok() {
+                self.total_bytes += size;
+            }
             // Check consistency.
             self.check();
 
