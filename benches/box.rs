@@ -3,6 +3,9 @@
 extern crate ralloc;
 extern crate test;
 
+#[global_allocator]
+static ALLOCATOR: ralloc::Allocator = ralloc::Allocator;
+
 #[bench]
 fn bench_box(b: &mut test::Bencher) {
     b.iter(|| {

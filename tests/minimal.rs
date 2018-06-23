@@ -1,5 +1,8 @@
 extern crate ralloc;
 
+#[global_allocator]
+static ALLOCATOR: ralloc::Allocator = ralloc::Allocator;
+
 #[test]
 fn minimal() {
     let a = Box::new(1);

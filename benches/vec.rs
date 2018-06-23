@@ -1,5 +1,8 @@
 #![feature(test)]
 
+#[global_allocator]
+static ALLOCATOR: ralloc::Allocator = ralloc::Allocator;
+
 extern crate ralloc;
 extern crate test;
 

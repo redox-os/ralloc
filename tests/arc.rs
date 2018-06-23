@@ -3,6 +3,9 @@
 
 extern crate ralloc;
 
+#[global_allocator]
+static ALLOCATOR: ralloc::Allocator = ralloc::Allocator;
+
 use std::sync::Arc;
 use std::thread;
 
