@@ -637,6 +637,7 @@ pub trait Allocator: ops::DerefMut<Target = Bookkeeper> {
                 if ind.start == self.pool.len() {
                     self.push(excessive);
                 } else if !excessive.is_empty() {
+                    self.total_bytes += excessive.size();
                     self.pool[ind.start] = excessive;
                 }
                 // Block will still not be adjacent, due to `excessive` being guaranteed to not be
