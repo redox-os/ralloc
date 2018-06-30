@@ -30,8 +30,6 @@ tls! {
 ///
 /// The rule of thumb is that this should be called, if and only if unwinding (which allocates)
 /// will hit the same error.
-#[linkage = "weak"]
-#[lang = "oom"]
 pub fn oom() -> ! {
     // If TLS is enabled, we will use the thread-local OOM.
     #[cfg(feature = "tls")]
