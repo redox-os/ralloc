@@ -365,6 +365,7 @@ mod test {
     }
 
     #[test]
+    #[cfg(not(feature="write"))]
     #[should_panic]
     fn test_oob() {
         let arr = b"lorem";
