@@ -259,6 +259,7 @@ impl Bookkeeper {
     ///
     /// This is NOOP in release mode.
     fn check(&self) {
+        /*
         if cfg!(debug_assertions) {
             // Logging.
             bk_log!(self, "Checking...");
@@ -332,6 +333,7 @@ impl Bookkeeper {
                 self.total_bytes
             );
         }
+        */
     }
 }
 
