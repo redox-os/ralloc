@@ -14,8 +14,7 @@
 #![no_std]
 #![feature(
     allocator_api, const_fn, core_intrinsics, stmt_expr_attributes, optin_builtin_traits,
-    type_ascription, thread_local, linkage, try_from, const_unsafe_cell_new, const_atomic_bool_new,
-    const_nonzero_new, const_atomic_ptr_new
+    type_ascription, thread_local, linkage
 )]
 #![warn(missing_docs)]
 
