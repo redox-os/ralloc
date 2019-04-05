@@ -1,6 +1,6 @@
 [package]
 name = "ralloc"
-version = "1.0.0"
+version = "1.0.1"
 authors = ["ticki <ticki@users.noreply.github.com>"]
 
 # URLs and paths
