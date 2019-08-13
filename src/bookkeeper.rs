@@ -181,17 +181,63 @@ impl Bookkeeper {
         f(Block::from(self.pool));
     }
 
+    /// Remove a block.
+    fn remove_at(&mut self, ind: usize) -> Block {
+        // Logging.
+        bk_log!(self;ind, "Removing block at {}.", ind);
+
+        let res = if ind + 1 == self.pool.len() {
+            let block = self.pool[ind].pop();
+            // Make sure there are no trailing empty blocks.
+            let new_len =
+                self.pool.len() - self.pool.iter().rev().take_while(|x| x.is_empty()).count();
+
+            // Truncate the vector.
+            self.pool.truncate(new_len);
+
+            block
+        } else {
+            // Calculate the upper and lower bound
+            let empty = self.pool[ind + 1].empty_left();
+            let empty2 = empty.empty_left();
+
+            // Replace the block at `ind` with the left empty block from `ind + 1`.
+            let block = mem::replace(&mut self.pool[ind], empty);
+
+            // Iterate over the pool from `ind` and down and set it to the  empty of our block.
+            let skip = self.pool.len() - ind;
+            for place in self
+                .pool
+                .iter_mut()
+                .rev()
+                .skip(skip)
+                .take_while(|x| x.is_empty())
+            {
+                // Empty the blocks.
+                *place = empty2.empty_left();
+            }
+
+            block
+        };
+
+        // Update the pool byte count.
+        self.total_bytes -= res.size();
+
+        // Check consistency.
+        self.check();
+
+        // Mark the block uninitialized to the debugger.
+        res.mark_uninitialized()
+    }
+
     /// Pop the top block from the pool.
     pub fn pop(&mut self) -> Option<Block> {
-        self.pool.pop().map(|res| {
-            // Update the byte count.
-            self.total_bytes -= res.size();
-
-            // Check stuff, just in case.
-            self.check();
-
-            res
-        })
+        let len = self.pool.len();
+        if len == 0 {
+            None
+        } else {
+            Some(self.remove_at(len - 1))
+        }
     }
 
     /// Get the length of the pool.
@@ -753,7 +799,7 @@ pub trait Allocator: ops::DerefMut<Target = Bookkeeper> {
         // Short-circuit in case on empty block.
         if !block.is_empty() {
             // Trigger the new memory event handler.
-            self.on_new_memory();
+            //self.on_new_memory();
 
             // Update the pool byte count.
             self.total_bytes += block.size();
@@ -828,7 +874,7 @@ pub trait Allocator: ops::DerefMut<Target = Bookkeeper> {
         {
             // Reserve a little extra for performance reasons.
             // TODO: This should be moved to some new method.
-            let new_cap = min_cap + EXTRA_ELEMENTS + config::extra_fresh(min_cap);
+            let new_cap = min_cap + (EXTRA_ELEMENTS * 2) + config::extra_fresh(min_cap);
 
             // Catch 'em all.
             debug_assert!(new_cap > self.pool.capacity(), "Reserve shrinks?!");
@@ -843,10 +889,12 @@ pub trait Allocator: ops::DerefMut<Target = Bookkeeper> {
             // Go back to the original state.
             self.reserving = false;
 
+            let old_buf = self.pool.refill(new_buf);
+
             // Check consistency.
             self.check();
 
-            Some(self.pool.refill(new_buf))
+            Some(old_buf)
         } else {
             None
         }
@@ -938,7 +986,7 @@ pub trait Allocator: ops::DerefMut<Target = Bookkeeper> {
         debug_assert!(!block.is_empty(), "Inserting an empty block.");
 
         // Trigger the new memory event handler.
-        self.on_new_memory();
+        //self.on_new_memory();
 
         // Find the next gap, where a used block were.
         let gap = self.pool
@@ -961,31 +1009,34 @@ pub trait Allocator: ops::DerefMut<Target = Bookkeeper> {
         unsafe {
             // LAST AUDIT: 2016-08-21 (Ticki).
 
+            // The gap defaults to the end of the pool.
+            let movcount = gap.unwrap_or_else(|| {
+                // We will only extend the length if we were unable to fit it into the current length.
+
+                // Loooooooging...
+                bk_log!(self;ind, "Block pool not long enough for shift. Extending.");
+                bk_log!(self;ind, "copy {} blocks from {:p} to {:p}", self.pool.len() - 1 - ind, self.pool.get_unchecked(ind) as *const Block, self.pool.get_unchecked(ind + 1) as *const Block);
+
+                // Reserve space. This does not break order, due to the assumption that
+                // `reserve` never breaks order.
+                old_buf = unborrow!(self.reserve(self.pool.len() + 1));
+
+                // We will move a block into reserved memory but outside of the vec's bounds. For
+                // that reason, we push an uninitialized element to extend the length, which will
+                // be assigned in the memcpy.
+                let res = self.pool.push(mem::zeroed());
+
+                // Just some assertions...
+                debug_assert!(res.is_ok(), "Push failed (buffer full).");
+                bk_log!(self;ind, "copy {} blocks from {:p} to {:p}", self.pool.len() - 1 - ind, self.pool.get_unchecked(ind) as *const Block, self.pool.get_unchecked(ind + 1) as *const Block);
+
+                self.pool.len() - 1
+            }) - ind;
             // Memmove the elements to make a gap to the new block.
             ptr::copy(
                 self.pool.get_unchecked(ind) as *const Block,
                 self.pool.get_unchecked_mut(ind + 1) as *mut Block,
-                // The gap defaults to the end of the pool.
-                gap.unwrap_or_else(|| {
-                    // We will only extend the length if we were unable to fit it into the current length.
-
-                    // Loooooooging...
-                    bk_log!(self;ind, "Block pool not long enough for shift. Extending.");
-
-                    // Reserve space. This does not break order, due to the assumption that
-                    // `reserve` never breaks order.
-                    old_buf = unborrow!(self.reserve(self.pool.len() + 1));
-
-                    // We will move a block into reserved memory but outside of the vec's bounds. For
-                    // that reason, we push an uninitialized element to extend the length, which will
-                    // be assigned in the memcpy.
-                    let res = self.pool.push(mem::uninitialized());
-
-                    // Just some assertions...
-                    debug_assert!(res.is_ok(), "Push failed (buffer full).");
-
-                    self.pool.len() - 1
-                }) - ind,
+                movcount,
             );
 
             // Update the pool byte count.
@@ -1002,54 +1053,5 @@ pub trait Allocator: ops::DerefMut<Target = Bookkeeper> {
 
         // Check consistency.
         self.check();
-    }
-
-    /// Remove a block.
-    fn remove_at(&mut self, ind: usize) -> Block {
-        // Logging.
-        bk_log!(self;ind, "Removing block at {}.", ind);
-
-        let res = if ind + 1 == self.pool.len() {
-            let block = self.pool[ind].pop();
-            // Make sure there are no trailing empty blocks.
-            let new_len =
-                self.pool.len() - self.pool.iter().rev().take_while(|x| x.is_empty()).count();
-
-            // Truncate the vector.
-            self.pool.truncate(new_len);
-
-            block
-        } else {
-            // Calculate the upper and lower bound
-            let empty = self.pool[ind + 1].empty_left();
-            let empty2 = empty.empty_left();
-
-            // Replace the block at `ind` with the left empty block from `ind + 1`.
-            let block = mem::replace(&mut self.pool[ind], empty);
-
-            // Iterate over the pool from `ind` and down and set it to the  empty of our block.
-            let skip = self.pool.len() - ind;
-            for place in self
-                .pool
-                .iter_mut()
-                .rev()
-                .skip(skip)
-                .take_while(|x| x.is_empty())
-            {
-                // Empty the blocks.
-                *place = empty2.empty_left();
-            }
-
-            block
-        };
-
-        // Update the pool byte count.
-        self.total_bytes -= res.size();
-
-        // Check consistency.
-        self.check();
-
-        // Mark the block uninitialized to the debugger.
-        res.mark_uninitialized()
     }
 }

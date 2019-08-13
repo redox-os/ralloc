@@ -89,6 +89,7 @@ mod test {
     use super::*;
 
     #[test]
+    #[cfg(not(feature="write"))]
     #[should_panic]
     fn test_panic_oom() {
         fn panic() -> ! {
@@ -101,6 +102,7 @@ mod test {
 
     #[test]
     #[should_panic]
+    #[cfg(not(feature="write"))]
     #[cfg(feature = "tls")]
     fn test_panic_thread_oom() {
         fn infinite() -> ! {
